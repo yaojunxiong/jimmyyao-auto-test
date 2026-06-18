@@ -97,3 +97,28 @@ npx playwright show-trace path/to/trace.zip
 
 - GitHub Actions 运行失败后，`playwright-report` 和 `test-results` 会作为 Artifact 上传。
 - 进入 Action 详情页 → Artifacts 区域 → 下载对应文件解压即可查看。
+
+---
+
+## 版本记录
+
+### v1.0 — 2026-06-18（已定版）
+
+**已完成：**
+
+1. 独立 Playwright 自动测试中台搭建。
+2. 支持 jimmyyao.com、www.jimmyyao.com、study.jimmyyao.com、next-app-kohl-one.vercel.app 多站点 smoke test。
+3. 支持 study 系统 /login、Google 登录入口、后台未登录拦截检查。
+4. GitHub Actions 支持 workflow_dispatch 手动触发。
+5. GitHub Actions 支持每日东京时间 8:00 自动巡检。
+6. 支持 playwright-report artifact 上传。
+7. 支持失败截图、录屏、trace。
+8. /admin/visitors 当前 404 已标记为 known issue，后续需在业务项目中补齐或确认实际路径。
+
+**v1.1 计划：**
+
+1. 主站到学习系统入口测试。
+2. 移动端截图测试。
+3. SEO meta 检查。
+4. GitHub Actions 失败通知。
+5. /admin/visitors 业务页面补齐跟踪。
