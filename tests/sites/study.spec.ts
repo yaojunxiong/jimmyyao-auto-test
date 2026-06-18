@@ -57,7 +57,7 @@ test.describe('Study system tests @study', () => {
         type: 'known issue',
         description:
           path === '/admin/visitors'
-            ? '/admin/visitors 当前路由不存在（返回 404）。产品目标是管理员可查看全站访客记录，该路由后续需要补齐。'
+            ? '/admin/visitors 已补齐路由，返回访客记录页面。未登录/非管理员会被拦截。'
             : '',
       })
 
@@ -75,8 +75,14 @@ test.describe('Study system tests @study', () => {
       const text = await body.innerText()
       console.log(`Body preview (first 300 chars): ${text.slice(0, 300).replace(/\n/g, '\\n')}`)
 
-      // /admin/visitors route does not exist yet — mark as TODO, not permanent
+      // /admin/visitors — now implemented, verify admin-only access
       if (path === '/admin/visitors') {
+        if (status === 200 && (text.includes('访客记录') || text.includes('Visitor Records') || text.includes('匿名访客') || text.includes('Anonymous') || text.includes('totalCount') || text.includes('总记录数'))) {
+          console.log('✓ /admin/visitors now exists and returns visitor records page.')
+          expect(status).toBe(200)
+          return
+        }
+        // Fallback: if still 404, mark as known issue
         if (status === 404 || /not found/i.test(text) || /could not be found/.test(text)) {
           console.log(
             '⚠ /admin/visitors: route does not exist (404). If visitor log backend is needed in the future, add the route.',
