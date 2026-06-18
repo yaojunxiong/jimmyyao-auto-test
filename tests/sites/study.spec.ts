@@ -54,11 +54,8 @@ test.describe('Study system tests @study', () => {
   for (const path of adminPaths) {
     test(`${path} blocks unauthenticated users @study`, async ({ page }) => {
       test.info().annotations.push({
-        type: 'known issue',
-        description:
-          path === '/admin/visitors'
-            ? '/admin/visitors 已补齐路由，返回访客记录页面。未登录/非管理员会被拦截。'
-            : '',
+        type: 'info',
+        description: '已上线并返回访客记录页面。未登录/非管理员会被正确拦截。',
       })
 
       console.log(`\n=== Study test: ${path} ===`)
@@ -74,23 +71,6 @@ test.describe('Study system tests @study', () => {
 
       const text = await body.innerText()
       console.log(`Body preview (first 300 chars): ${text.slice(0, 300).replace(/\n/g, '\\n')}`)
-
-      // /admin/visitors — now implemented, verify admin-only access
-      if (path === '/admin/visitors') {
-        if (status === 200 && (text.includes('访客记录') || text.includes('Visitor Records') || text.includes('匿名访客') || text.includes('Anonymous') || text.includes('totalCount') || text.includes('总记录数'))) {
-          console.log('✓ /admin/visitors now exists and returns visitor records page.')
-          expect(status).toBe(200)
-          return
-        }
-        // Fallback: if still 404, mark as known issue
-        if (status === 404 || /not found/i.test(text) || /could not be found/.test(text)) {
-          console.log(
-            '⚠ /admin/visitors: route does not exist (404). If visitor log backend is needed in the future, add the route.',
-          )
-          expect(status).toBe(404)
-          return
-        }
-      }
 
       // Case A: URL redirected to /login
       if (page.url().includes('/login')) {
