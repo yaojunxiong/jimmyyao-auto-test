@@ -5,7 +5,13 @@ const errorPatterns = [
   /Application error/i,
   /This page could not be found/,
   /500/,
+  /502/,
+  /503/,
+  /504/,
   /Internal Server Error/i,
+  /Service Unavailable/i,
+  /Bad Gateway/i,
+  /Deployment Not Found/i,
 ]
 
 test.describe('Smoke tests', () => {
@@ -29,24 +35,29 @@ test.describe('Smoke tests', () => {
 
       expect(errors).toHaveLength(0)
 
-      if (status >= 200 && status < 400) {
-        expect(status).toBeLessThan(400)
-        console.log('✓ HTTP status in 200-399 range')
-      } else if (status === 404) {
+      // Allow 200-399, or 404 that isn't a genuine not-found page
+      if (status === 404) {
         const bodyText = await page.locator('body').innerText()
-        console.log('⚠ HTTP 404 — checking whether page genuinely not found')
-        if (/This page could not be found/.test(bodyText) || /Page not found/i.test(bodyText)) {
-          console.log('✗ Page is genuinely not found')
-        }
-        expect(status).toBeLessThan(400)
-        console.log('✓ HTTP 404 but body shows valid content, passing')
+        const genuinelyNotFound =
+          /This page could not be found/.test(bodyText) || /Page not found/i.test(bodyText)
+        expect(genuinelyNotFound).toBe(false)
       } else {
+        expect(status).toBeGreaterThanOrEqual(200)
         expect(status).toBeLessThan(400)
       }
 
       const body = page.locator('body')
       await expect(body).toBeVisible()
       console.log('✓ body is visible')
+
+      // Wait for the network to settle so deferred errors surface
+      await page.waitForLoadState('networkidle')
+
+      // Catch any errors that surface after the initial load
+      await expect.poll(() => errors, { timeout: 5000 }).toHaveLength(0)
+
+      // Re-check body is still visible after deferred rendering
+      await expect(body).toBeVisible()
 
       const text = await body.innerText()
       console.log(`Body preview (first 300 chars): ${text.slice(0, 300).replace(/\n/g, '\\n')}`)
