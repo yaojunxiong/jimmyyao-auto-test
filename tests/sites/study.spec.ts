@@ -14,6 +14,12 @@ const loginKeywords = [
   /permission/i,
 ]
 
+async function needsAuth(page: import('@playwright/test').Page): Promise<boolean> {
+  if (page.url().includes('/login')) return true
+  const text = await page.locator('body').innerText()
+  return loginKeywords.some((re) => re.test(text))
+}
+
 test.describe('Study system tests @study', () => {
   test('/login page is accessible', async ({ page }) => {
     console.log(`\n=== Study test: /login ===`)
@@ -92,4 +98,131 @@ test.describe('Study system tests @study', () => {
       expect(false).toBe(true)
     })
   }
+
+  // ───────────────────────────────────────────────────────────
+  // Admin page tests — verify correct rendering, not 404,
+  // and mark auth-required when login walls are hit.
+  // ───────────────────────────────────────────────────────────
+
+  test('/admin/workflows loads correctly @study @admin', async ({ page }) => {
+    const path = '/admin/workflows'
+    console.log(`\n=== Admin test: ${path} ===`)
+
+    await page.goto(`${base}${path}`, { waitUntil: 'domcontentloaded' })
+    console.log(`Final URL: ${page.url()}`)
+    console.log(`Title: ${await page.title()}`)
+
+    const body = page.locator('body')
+    await expect(body).toBeVisible()
+    const bodyText = await body.innerText()
+    console.log(`Body preview (first 300 chars): ${bodyText.slice(0, 300).replace(/\n/g, '\\n')}`)
+
+    // Must NOT be a Next.js 404 page
+    expect(/This page could not be found/i.test(bodyText)).toBe(false)
+
+    const auth = await needsAuth(page)
+    if (auth) {
+      test.info().annotations.push({ type: 'skip', description: '需要管理员登录态 (auth-required)' })
+      await page.screenshot({ path: `test-results/auth-required-admin-workflows.png` })
+      console.log('⏭ Skipped: auth required')
+    }
+    test.skip(auth, '需要管理员登录态 (auth-required)')
+
+    await expect(body).toContainText('访客流程管理')
+    await expect(body).toContainText('study_visitor')
+    await expect(body).toContainText('logged_in_first_visit')
+    console.log('✓ All assertions passed')
+  })
+
+  test('/admin/activity loads correctly @study @admin', async ({ page }) => {
+    const path = '/admin/activity'
+    console.log(`\n=== Admin test: ${path} ===`)
+
+    await page.goto(`${base}${path}`, { waitUntil: 'domcontentloaded' })
+    console.log(`Final URL: ${page.url()}`)
+    console.log(`Title: ${await page.title()}`)
+
+    const body = page.locator('body')
+    await expect(body).toBeVisible()
+    const bodyText = await body.innerText()
+    console.log(`Body preview (first 300 chars): ${bodyText.slice(0, 300).replace(/\n/g, '\\n')}`)
+
+    // Must NOT be a Next.js 404 page
+    expect(/This page could not be found/i.test(bodyText)).toBe(false)
+
+    const auth = await needsAuth(page)
+    if (auth) {
+      test.info().annotations.push({ type: 'skip', description: '需要管理员登录态 (auth-required)' })
+      await page.screenshot({ path: `test-results/auth-required-admin-activity.png` })
+      console.log('⏭ Skipped: auth required')
+    }
+    test.skip(auth, '需要管理员登录态 (auth-required)')
+
+    if (bodyText.includes('暂无访问记录')) {
+      // When empty: must show diagnostic info (Admin email / userId / role)
+      expect(/Admin|adminCheck/.test(bodyText)).toBe(true)
+      console.log('✓ Empty state with diagnostic info')
+    } else {
+      // When data exists: must show the activity table
+      await expect(body).toContainText(/时间|Time/)
+      console.log('✓ Activity table visible')
+    }
+  })
+
+  test('/admin/visitors loads correctly @study @admin', async ({ page }) => {
+    const path = '/admin/visitors'
+    console.log(`\n=== Admin test: ${path} ===`)
+
+    await page.goto(`${base}${path}`, { waitUntil: 'domcontentloaded' })
+    console.log(`Final URL: ${page.url()}`)
+    console.log(`Title: ${await page.title()}`)
+
+    const body = page.locator('body')
+    await expect(body).toBeVisible()
+    const bodyText = await body.innerText()
+    console.log(`Body preview (first 300 chars): ${bodyText.slice(0, 300).replace(/\n/g, '\\n')}`)
+
+    // Must NOT be a Next.js 404 page
+    expect(/This page could not be found/i.test(bodyText)).toBe(false)
+
+    const auth = await needsAuth(page)
+    if (auth) {
+      test.info().annotations.push({ type: 'skip', description: '需要管理员登录态 (auth-required)' })
+      await page.screenshot({ path: `test-results/auth-required-admin-visitors.png` })
+      console.log('⏭ Skipped: auth required')
+    }
+    test.skip(auth, '需要管理员登录态 (auth-required)')
+
+    // Must show workflow_skip_reason or workflow status column
+    await expect(body).toContainText(/流程|Workflow/)
+    console.log('✓ Workflow status column present')
+  })
+
+  test('/admin/visitor-flow-rules loads correctly @study @admin', async ({ page }) => {
+    const path = '/admin/visitor-flow-rules'
+    console.log(`\n=== Admin test: ${path} ===`)
+
+    await page.goto(`${base}${path}`, { waitUntil: 'domcontentloaded' })
+    console.log(`Final URL: ${page.url()}`)
+    console.log(`Title: ${await page.title()}`)
+
+    const body = page.locator('body')
+    await expect(body).toBeVisible()
+    const bodyText = await body.innerText()
+    console.log(`Body preview (first 300 chars): ${bodyText.slice(0, 300).replace(/\n/g, '\\n')}`)
+
+    // Must NOT be a Next.js 404 page
+    expect(/This page could not be found/i.test(bodyText)).toBe(false)
+
+    const auth = await needsAuth(page)
+    if (auth) {
+      test.info().annotations.push({ type: 'skip', description: '需要管理员登录态 (auth-required)' })
+      await page.screenshot({ path: `test-results/auth-required-admin-visitor-flow-rules.png` })
+      console.log('⏭ Skipped: auth required')
+    }
+    test.skip(auth, '需要管理员登录态 (auth-required)')
+
+    await expect(body).toBeVisible()
+    console.log('✓ Page rendered')
+  })
 })
