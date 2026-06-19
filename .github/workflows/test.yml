@@ -75,6 +75,8 @@ jobs:
         run: |
           echo "ADMIN_EMAIL configured: ${{ secrets.ADMIN_EMAIL != '' }}"
           echo "ADMIN_PASSWORD configured: ${{ secrets.ADMIN_PASSWORD != '' }}"
+          echo "TEST_USER_EMAIL configured: ${{ secrets.TEST_USER_EMAIL != '' }}"
+          echo "TEST_USER_PASSWORD configured: ${{ secrets.TEST_USER_PASSWORD != '' }}"
 
       - name: Run unauthenticated admin tests (@study)
         run: npx playwright test --grep '@study'
@@ -82,6 +84,14 @@ jobs:
       - name: Run authenticated admin tests (@admin-auth)
         run: npx playwright test --grep '@admin-auth'
         env:
+          ADMIN_EMAIL: ${{ secrets.ADMIN_EMAIL }}
+          ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
+
+      - name: Run normal user e2e tests (@normal-user-e2e)
+        run: npx playwright test --grep '@normal-user-e2e'
+        env:
+          TEST_USER_EMAIL: ${{ secrets.TEST_USER_EMAIL }}
+          TEST_USER_PASSWORD: ${{ secrets.TEST_USER_PASSWORD }}
           ADMIN_EMAIL: ${{ secrets.ADMIN_EMAIL }}
           ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
 
