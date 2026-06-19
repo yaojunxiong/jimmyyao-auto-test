@@ -71,18 +71,19 @@ jobs:
       - name: Install CJK fonts
         run: sudo apt-get update && sudo apt-get install -y fonts-noto-cjk
 
+      - name: Check auth env
+        run: |
+          echo "ADMIN_EMAIL configured: ${{ secrets.ADMIN_EMAIL != '' }}"
+          echo "ADMIN_PASSWORD configured: ${{ secrets.ADMIN_PASSWORD != '' }}"
+
       - name: Run unauthenticated admin tests (@study)
         run: npx playwright test --grep '@study'
-        env:
-          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL || 'https://ycjuceortcduakxscfes.supabase.co' }}
 
       - name: Run authenticated admin tests (@admin-auth)
         run: npx playwright test --grep '@admin-auth'
         env:
           ADMIN_EMAIL: ${{ secrets.ADMIN_EMAIL }}
           ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
-          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL || 'https://ycjuceortcduakxscfes.supabase.co' }}
-          NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY }}
 
       - name: Upload Playwright report
         if: always()

@@ -7,10 +7,18 @@ const base = 'https://study.jimmyyao.com'
 const SCREENSHOTS_DIR = 'test-results/screenshots'
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://ycjuceortcduakxscfes.supabase.co'
-const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY
+const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InljanVjZW9ydGNkdWFreHNjZmVzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg4ODA4ODMsImV4cCI6MjA5NDQ1Njg4M30.DZ92IY5x24eSuxbQBrisuJOQXLKMmF2LqQap-lK11kM'
 const adminEmail = process.env.ADMIN_EMAIL
 const adminPassword = process.env.ADMIN_PASSWORD
-const needsSetup = !adminEmail || !adminPassword || !supabaseKey
+const needsSetup = !adminEmail || !adminPassword
+
+// Safe diagnostic (never prints full values)
+console.log(`[admin-auth] ADMIN_EMAIL configured: ${adminEmail ? 'yes' : 'no'}`)
+console.log(`[admin-auth] ADMIN_PASSWORD configured: ${adminPassword ? 'yes' : 'no'}`)
+console.log(`[admin-auth] supabaseKey fallback available: yes`)
+if (needsSetup) {
+  console.log(`[admin-auth] Skipping setup — missing credentials`)
+}
 
 const projectRef = supabaseUrl.match(/https:\/\/([^.]+)/)?.[1] || 'ycjuceortcduakxscfes'
 
