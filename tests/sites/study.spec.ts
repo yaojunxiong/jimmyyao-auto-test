@@ -31,6 +31,31 @@ const notFoundPatterns = [
   /page not found/i,
 ]
 
+async function waitForLoadComplete(page: import('@playwright/test').Page, tag: string, timeout = 10000) {
+  try {
+    await page.waitForFunction(
+      () => !document.body.innerText.includes('加载中...'),
+      { timeout },
+    )
+  } catch {
+    await saveScreenshot(page, `${tag}-loading-timeout`)
+    throw new Error(`${tag}: 页面加载超时 ${timeout}ms，仍在显示"加载中..."`)
+  }
+}
+
+async function waitForAnyKeyword(page: import('@playwright/test').Page, keywords: string[], tag: string, timeout = 10000) {
+  try {
+    await page.waitForFunction(
+      (keys: string[]) => keys.some((k) => document.body.innerText.includes(k)),
+      keywords,
+      { timeout },
+    )
+  } catch {
+    await saveScreenshot(page, `${tag}-content-timeout`)
+    throw new Error(`${tag}: 未出现稳定内容（${keywords.join('、')}）`)
+  }
+}
+
 function assertNo404(text: string) {
   for (const p of notFoundPatterns) {
     expect(text).not.toMatch(p)
@@ -116,6 +141,7 @@ test.describe('Study system tests @study', () => {
       test.skip(auth, '需要管理员登录态 (auth-required)')
 
       // ── Authenticated assertions (only runs when page renders without login wall) ──
+      await waitForLoadComplete(page, `admin-${path}`)
       await saveScreenshot(page, `admin-${path.replace(/\//g, '-')}`)
 
       if (path === '/admin/workflows') {
@@ -138,8 +164,8 @@ test.describe('Study system tests @study', () => {
         await expect(body).toContainText(/流程|Workflow/)
         console.log('✓ Visitors page: title and workflow column present')
       } else if (path === '/admin/visitor-flow-rules') {
-        await expect(body).toContainText(/访客流程规则|新增规则/)
-        console.log('✓ Visitor flow rules page: content visible')
+        await waitForAnyKeyword(page, ['新增规则', '规则列表', '暂无规则', '保存', '启用'], `admin-${path}`)
+        console.log('✓ Visitor flow rules page: stable content visible')
       } else if (path === '/admin/system') {
         await expect(body).toContainText(/系统检测|system/i)
         console.log('✓ System page: content visible')

@@ -27,7 +27,32 @@ let storageState: Awaited<ReturnType<BrowserContext['storageState']>> | null = n
 async function saveScreenshot(page: import('@playwright/test').Page, name: string) {
   try { mkdirSync(SCREENSHOTS_DIR, { recursive: true }) } catch {}
   await page.screenshot({ path: join(SCREENSHOTS_DIR, `${name}.png`), fullPage: true })
-  console.log(`📸 Screenshot saved: ${SCREENSHOTS_DIR}/${name}.png`)
+  console.log(` Screenshot saved: ${SCREENSHOTS_DIR}/${name}.png`)
+}
+
+async function waitForLoadComplete(page: import('@playwright/test').Page, tag: string, timeout = 10000) {
+  try {
+    await page.waitForFunction(
+      () => !document.body.innerText.includes('加载中...'),
+      { timeout },
+    )
+  } catch {
+    await saveScreenshot(page, `${tag}-loading-timeout`)
+    throw new Error(`${tag}: 页面加载超时 ${timeout}ms，仍在显示"加载中..."`)
+  }
+}
+
+async function waitForAnyKeyword(page: import('@playwright/test').Page, keywords: string[], tag: string, timeout = 10000) {
+  try {
+    await page.waitForFunction(
+      (keys: string[]) => keys.some((k) => document.body.innerText.includes(k)),
+      keywords,
+      { timeout },
+    )
+  } catch {
+    await saveScreenshot(page, `${tag}-content-timeout`)
+    throw new Error(`${tag}: 未出现稳定内容（${keywords.join('、')}）`)
+  }
 }
 
 test.describe('Admin authenticated tests @admin-auth', () => {
@@ -119,6 +144,8 @@ test.describe('Admin authenticated tests @admin-auth', () => {
     const ctx = await browser.newContext({ storageState: storageState! })
     try {
       const page = await visit(ctx, '/admin/workflows')
+      await waitForLoadComplete(page, 'auth-admin-workflows')
+      await waitForAnyKeyword(page, ['暂无流程实例', 'study_visitor', 'logged_in_first_visit'], 'auth-admin-workflows')
       await saveScreenshot(page, 'auth-admin-workflows')
 
       const body = page.locator('body')
@@ -138,6 +165,7 @@ test.describe('Admin authenticated tests @admin-auth', () => {
     const ctx = await browser.newContext({ storageState: storageState! })
     try {
       const page = await visit(ctx, '/admin/activity')
+      await waitForLoadComplete(page, 'auth-admin-activity')
       await saveScreenshot(page, 'auth-admin-activity')
 
       const bodyText = await page.locator('body').innerText()
@@ -160,6 +188,7 @@ test.describe('Admin authenticated tests @admin-auth', () => {
     const ctx = await browser.newContext({ storageState: storageState! })
     try {
       const page = await visit(ctx, '/admin/visitors')
+      await waitForLoadComplete(page, 'auth-admin-visitors')
       await saveScreenshot(page, 'auth-admin-visitors')
 
       const body = page.locator('body')
@@ -178,11 +207,13 @@ test.describe('Admin authenticated tests @admin-auth', () => {
     const ctx = await browser.newContext({ storageState: storageState! })
     try {
       const page = await visit(ctx, '/admin/visitor-flow-rules')
+      await waitForLoadComplete(page, 'auth-admin-visitor-flow-rules')
+      await waitForAnyKeyword(page, ['新增规则', '规则列表', '暂无规则', '保存', '启用'], 'auth-admin-visitor-flow-rules')
       await saveScreenshot(page, 'auth-admin-visitor-flow-rules')
 
       const body = page.locator('body')
       await expect(body).toContainText(/访客流程规则|新增规则/)
-      console.log('✓ Visitor flow rules page: content visible')
+      console.log('✓ Visitor flow rules page: stable content visible')
     } finally {
       await ctx.close()
     }
@@ -195,6 +226,7 @@ test.describe('Admin authenticated tests @admin-auth', () => {
     const ctx = await browser.newContext({ storageState: storageState! })
     try {
       const page = await visit(ctx, '/admin/system')
+      await waitForLoadComplete(page, 'auth-admin-system')
       await saveScreenshot(page, 'auth-admin-system')
 
       await expect(page.locator('body')).toContainText(/系统检测|system/i)
@@ -211,6 +243,7 @@ test.describe('Admin authenticated tests @admin-auth', () => {
     const ctx = await browser.newContext({ storageState: storageState! })
     try {
       const page = await visit(ctx, '/admin/monitor')
+      await waitForLoadComplete(page, 'auth-admin-monitor')
       await saveScreenshot(page, 'auth-admin-monitor')
 
       await expect(page.locator('body')).toContainText(/系统监控|monitor/i)
@@ -239,6 +272,7 @@ test.describe('Admin authenticated tests @admin-auth', () => {
       const ctx = await browser.newContext({ storageState: storageState! })
       try {
         const page = await visit(ctx, path)
+        await waitForLoadComplete(page, `no404-${path}`)
         const bodyText = await page.locator('body').innerText()
         expect(/404/.test(bodyText)).toBe(false)
         expect(/This page could not be found/i.test(bodyText)).toBe(false)
