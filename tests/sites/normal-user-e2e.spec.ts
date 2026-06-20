@@ -264,11 +264,11 @@ test.describe('Normal user e2e @normal-user-e2e', () => {
     await waitForAnyKeyword(page, [
       'logged_in_first_visit',
       '暂无流程实例',
-      '访客流程管理',
+      '审批流程管理',
     ], 'admin-workflows-logged-in-first-visit')
 
     const body = page.locator('body')
-    await expect(body).toContainText(/访客流程管理|Workflow/)
+    await expect(body).toContainText(/审批流程管理|Workflow/)
     console.log('✓ logged_in_first_visit workflows page: accessible')
   })
 })
