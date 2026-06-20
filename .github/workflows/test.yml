@@ -34,22 +34,28 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y fonts-noto-cjk
 
       - name: Run smoke tests
-        run: npx playwright test --grep '@smoke' --reporter json:test-results/smoke.json,html,list
+        shell: bash
+        run: |
+          set -o pipefail
+          mkdir -p /tmp/pw-artifacts
+          npx playwright test --grep '@smoke' --reporter json,html,list 2>&1 | tee /tmp/pw-artifacts/smoke-raw.txt && \
+          python3 -c "
+          import re, json, sys
+          with open('/tmp/pw-artifacts/smoke-raw.txt') as f:
+              content = f.read()
+          match = re.search(r'(\{.*\})', content, re.DOTALL)
+          if match:
+              with open('/tmp/pw-artifacts/smoke.json', 'w') as out:
+                  out.write(match.group(1))
+          else:
+              sys.exit(1)
+          "
 
-      - name: Upload Playwright report
+      - name: Upload smoke test artifacts
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: smoke-test-report
-          path: playwright-report/
-          if-no-files-found: ignore
-          retention-days: 7
-
-      - name: Upload test results
-        if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: smoke-test-results
+          name: smoke-test-artifacts
           path: |
             test-results/
             playwright-report/
@@ -84,36 +90,66 @@ jobs:
           echo "TEST_USER_PASSWORD configured: ${{ secrets.TEST_USER_PASSWORD != '' }}"
 
       - name: Run study tests (unauthenticated)
-        run: npx playwright test --grep '@study' --reporter json:test-results/study.json,html,list
+        shell: bash
+        run: |
+          set -o pipefail
+          mkdir -p /tmp/pw-artifacts
+          npx playwright test --grep '@study' --reporter json,html,list 2>&1 | tee /tmp/pw-artifacts/study-raw.txt && \
+          python3 -c "
+          import re, json
+          with open('/tmp/pw-artifacts/study-raw.txt') as f:
+              content = f.read()
+          match = re.search(r'(\{.*\})', content, re.DOTALL)
+          if match:
+              with open('/tmp/pw-artifacts/study.json', 'w') as out:
+                  out.write(match.group(1))
+          "
 
       - name: Run authenticated admin tests (@admin-auth)
-        run: npx playwright test --grep '@admin-auth' --reporter json:test-results/admin-auth.json,html,list
+        shell: bash
+        run: |
+          set -o pipefail
+          mkdir -p /tmp/pw-artifacts
+          npx playwright test --grep '@admin-auth' --reporter json,html,list 2>&1 | tee /tmp/pw-artifacts/admin-auth-raw.txt && \
+          python3 -c "
+          import re, json
+          with open('/tmp/pw-artifacts/admin-auth-raw.txt') as f:
+              content = f.read()
+          match = re.search(r'(\{.*\})', content, re.DOTALL)
+          if match:
+              with open('/tmp/pw-artifacts/admin-auth.json', 'w') as out:
+                  out.write(match.group(1))
+          "
         env:
           ADMIN_EMAIL: ${{ secrets.ADMIN_EMAIL }}
           ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
 
       - name: Run normal user e2e tests (@normal-user-e2e)
-        run: npx playwright test --grep '@normal-user-e2e' --reporter json:test-results/normal-user-e2e.json,html,list
+        shell: bash
+        run: |
+          set -o pipefail
+          mkdir -p /tmp/pw-artifacts
+          npx playwright test --grep '@normal-user-e2e' --reporter json,html,list 2>&1 | tee /tmp/pw-artifacts/normal-user-e2e-raw.txt && \
+          python3 -c "
+          import re, json
+          with open('/tmp/pw-artifacts/normal-user-e2e-raw.txt') as f:
+              content = f.read()
+          match = re.search(r'(\{.*\})', content, re.DOTALL)
+          if match:
+              with open('/tmp/pw-artifacts/normal-user-e2e.json', 'w') as out:
+                  out.write(match.group(1))
+          "
         env:
           TEST_USER_EMAIL: ${{ secrets.TEST_USER_EMAIL }}
           TEST_USER_PASSWORD: ${{ secrets.TEST_USER_PASSWORD }}
           ADMIN_EMAIL: ${{ secrets.ADMIN_EMAIL }}
           ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
 
-      - name: Upload Playwright report
+      - name: Upload regression test artifacts
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: regression-test-report
-          path: playwright-report/
-          if-no-files-found: ignore
-          retention-days: 7
-
-      - name: Upload test results + screenshots
-        if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: regression-test-results
+          name: regression-test-artifacts
           path: |
             test-results/
             playwright-report/
@@ -126,27 +162,8 @@ jobs:
         run: |
           set +e
           COMMIT_ID=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
-
-          append_module() {
-            local label="$1"
-            local json_file="$2"
-            if [ ! -f "$json_file" ]; then
-              echo "  - **${label}**: ⚠️ 未运行" >> report.md
-              return
-            fi
-            local total=$(jq '.stats?.expected // 0' "$json_file" 2>/dev/null || echo 0)
-            local passed=$(jq '.stats?.passed // 0' "$json_file" 2>/dev/null || echo 0)
-            local failed=$(jq '.stats?.failed // 0' "$json_file" 2>/dev/null || echo 0)
-            local skipped=$(jq '.stats?.skipped // 0' "$json_file" 2>/dev/null || echo 0)
-            if [ "$failed" -gt 0 ] 2>/dev/null; then
-              echo "  - **${label}**: ❌ FAILED (pass=${passed}, fail=${failed}, skip=${skipped})" >> report.md
-              jq -r '.suites[]?.specs[]? | select(.ok == false) | "    - ❌ \`\(.title)\`"' "$json_file" 2>/dev/null >> report.md
-            elif [ "$passed" -eq 0 ] && [ "$total" -gt 0 ] 2>/dev/null; then
-              echo "  - **${label}**: ⚠️ NO PASSED (total=${total}, skip=${skipped})" >> report.md
-            else
-              echo "  - **${label}**: ✅ PASSED (total=${total}, pass=${passed}, skip=${skipped})" >> report.md
-            fi
-          }
+          ADMIN_CONFIGURED=${{ secrets.ADMIN_EMAIL != '' && secrets.ADMIN_PASSWORD != '' }}
+          USER_CONFIGURED=${{ secrets.TEST_USER_EMAIL != '' && secrets.TEST_USER_PASSWORD != '' }}
 
           cat > report.md << REPORTEOF
           # Production Regression Report
@@ -158,36 +175,133 @@ jobs:
 
           ## Smoke Test
           REPORTEOF
-          append_module "Homepage / site availability" "test-results/smoke.json"
 
-          cat >> report.md << REPORTEOF
+          parse_json() {
+            local json_file="$1"
+            if [ ! -f "$json_file" ]; then
+              echo ""
+              return
+            fi
+            python3 -c "
+            import json, sys
+            with open('${json_file}') as f:
+                data = json.load(f)
+            stats = data.get('stats', {})
+            total = stats.get('expected', 0) + stats.get('unexpected', 0) + stats.get('skipped', 0)
+            passed = stats.get('expected', 0)
+            failed = stats.get('unexpected', 0)
+            skipped = stats.get('skipped', 0)
+            flaky = stats.get('flaky', 0)
+            print(f'{total}|{passed}|{failed}|{skipped}|{flaky}')
 
-          ## Regression Tests
-          REPORTEOF
-          append_module "Unauthenticated admin pages (@study)" "test-results/study.json"
-          append_module "Admin authenticated (@admin-auth)" "test-results/admin-auth.json"
-          append_module "Normal user e2e (@normal-user-e2e)" "test-results/normal-user-e2e.json"
+            # Print failed test details
+            for suite in data.get('suites', []):
+                for spec in suite.get('specs', []):
+                    ok = spec.get('ok', True)
+                    if not ok:
+                        title = spec.get('title', '?')
+                        # Get error message from first test
+                        tests = spec.get('tests', [])
+                        if tests:
+                            errs = tests[0].get('errors', [])
+                        else:
+                            errs = []
+                        msg = ''
+                        if errs:
+                            msg = (errs[0].get('message', '') or errs[0].get('snippet', '') or '').replace(chr(10), ' ')[:200]
+                        print(f'FAIL|{title}|{msg}')
+                    elif skipped:
+                        title = spec.get('title', '?')
+                        print(f'SKIP|{title}|')
+            " 2>/dev/null
+          }
 
-          cat >> report.md << REPORTEOF
+          append_module() {
+            local label="$1"
+            local json_file="$2"
+            local missing_secret_msg="$3"
+            local result
+            result=$(parse_json "$json_file")
+            if [ -z "$result" ]; then
+              if [ -n "$missing_secret_msg" ]; then
+                echo "  - **${label}**: ⏭️ ${missing_secret_msg}" >> report.md
+              else
+                echo "  - **${label}**: ⚠️ no result file (runner may have failed)" >> report.md
+              fi
+              return
+            fi
+            local stats=$(echo "$result" | head -1)
+            IFS='|' read -r total passed failed skipped flaky <<< "$stats"
+            if [ "$failed" -gt 0 ]; then
+              echo "  - **${label}**: ❌ FAILED (pass=${passed}, fail=${failed}, skip=${skipped}, flaky=${flaky})" >> report.md
+              echo "    Failed tests:" >> report.md
+              echo "$result" | grep '^FAIL|' | while IFS='|' read -r _ name msg; do
+                echo "    - ❌ \`${name}\`: ${msg}" >> report.md
+              done
+              echo "    - Artifact: \`regression-test-artifacts\` (screenshots, videos, traces)" >> report.md
+            elif [ "$passed" -eq 0 ] && [ "$skipped" -gt 0 ]; then
+              echo "  - **${label}**: ⏭️ ALL SKIPPED (total=${total}, skip=${skipped})" >> report.md
+            else
+              echo "  - **${label}**: ✅ PASSED (total=${total}, pass=${passed}, skip=${skipped})" >> report.md
+            fi
+          }
 
-          ## All Test Details
-          REPORTEOF
-          for json_file in test-results/smoke.json test-results/study.json test-results/admin-auth.json test-results/normal-user-e2e.json; do
+          # Smoke
+          append_module "Homepage / site availability" "/tmp/pw-artifacts/smoke.json" ""
+
+          # Regression
+          echo "" >> report.md
+          echo "## Regression Tests" >> report.md
+
+          ADMIN_MSG=""
+          USER_MSG=""
+          if [ "$ADMIN_CONFIGURED" != "true" ]; then
+            ADMIN_MSG="ADMIN_EMAIL / ADMIN_PASSWORD not configured in Secrets"
+          fi
+          if [ "$USER_CONFIGURED" != "true" ]; then
+            USER_MSG="TEST_USER_EMAIL / TEST_USER_PASSWORD not configured in Secrets"
+          fi
+
+          append_module "Unauthenticated admin pages (@study)" "/tmp/pw-artifacts/study.json" ""
+          append_module "Admin authenticated (@admin-auth)" "/tmp/pw-artifacts/admin-auth.json" "$ADMIN_MSG"
+          append_module "Normal user e2e (@normal-user-e2e)" "/tmp/pw-artifacts/normal-user-e2e.json" "$USER_MSG"
+
+          # All test details
+          echo "" >> report.md
+          echo "## All Test Details" >> report.md
+          for json_file in /tmp/pw-artifacts/smoke.json /tmp/pw-artifacts/study.json /tmp/pw-artifacts/admin-auth.json /tmp/pw-artifacts/normal-user-e2e.json; do
             if [ -f "$json_file" ]; then
               group=$(basename "$json_file" .json)
               echo "" >> report.md
               echo "### ${group}" >> report.md
               echo '```' >> report.md
-              jq -r '.suites[]?.specs[]? | "\(if .ok then "PASS" else "FAIL" end) \(.title)"' "$json_file" 2>/dev/null >> report.md
+              python3 -c "
+              import json
+              with open('${json_file}') as f:
+                  data = json.load(f)
+              for suite in data.get('suites', []):
+                  for spec in suite.get('specs', []):
+                      ok = spec.get('ok', True)
+                      tests = spec.get('tests', [])
+                      skipped = any(t.get('status') == 'skipped' or t.get('status') == 'did not run' for t in tests) if tests else False
+                      if not ok:
+                          print(f\"FAIL {spec.get('title', '?')}\")
+                      elif skipped:
+                          print(f\"SKIP {spec.get('title', '?')}\")
+                      else:
+                          print(f\"PASS {spec.get('title', '?')}\")
+              " 2>/dev/null >> report.md
               echo '```' >> report.md
             fi
           done
 
-          cat >> report.md << REPORTEOF
-
-          ---
-          _Report generated by GitHub Actions run \`${{ github.run_id }}\`_
-          REPORTEOF
+          echo "" >> report.md
+          echo "## Artifacts" >> report.md
+          echo "- Regression report: \`regression-report\` (this file)" >> report.md
+          echo "- Playwright HTML report + screenshots: \`regression-test-artifacts\`" >> report.md
+          echo "" >> report.md
+          echo "---" >> report.md
+          echo "_Report generated by GitHub Actions run \`${{ github.run_id }}\`_" >> report.md
 
       - name: Upload regression report
         if: always()
