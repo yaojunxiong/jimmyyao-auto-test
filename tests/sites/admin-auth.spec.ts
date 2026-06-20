@@ -145,14 +145,15 @@ test.describe('Admin authenticated tests @admin-auth', () => {
     try {
       const page = await visit(ctx, '/admin/workflows')
       await waitForLoadComplete(page, 'auth-admin-workflows')
-      await waitForAnyKeyword(page, ['暂无流程实例', 'study_visitor', 'logged_in_first_visit'], 'auth-admin-workflows')
+      await waitForAnyKeyword(page, ['暂无流程实例', '审批流程管理', 'study_visitor', 'membership_application'], 'auth-admin-workflows')
       await saveScreenshot(page, 'auth-admin-workflows')
 
       const body = page.locator('body')
-      await expect(body).toContainText('访客流程管理')
+      await expect(body).toContainText('审批流程管理')
       await expect(body).toContainText('study_visitor')
       await expect(body).toContainText('logged_in_first_visit')
-      console.log('✓ Workflows: definitions present')
+      await expect(body).toContainText('membership_application')
+      console.log('✓ Workflows: three definitions present')
     } finally {
       await ctx.close()
     }
