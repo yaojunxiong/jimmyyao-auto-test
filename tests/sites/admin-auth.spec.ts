@@ -254,6 +254,23 @@ test.describe('Admin authenticated tests @admin-auth', () => {
     }
   })
 
+  test('/admin/email-logs renders', async ({ browser }) => {
+    skipIfNoSetup()
+    skipIfNoStorage()
+
+    const ctx = await browser.newContext({ storageState: storageState! })
+    try {
+      const page = await visit(ctx, '/admin/email-logs')
+      await waitForLoadComplete(page, 'auth-admin-email-logs')
+      await saveScreenshot(page, 'auth-admin-email-logs')
+
+      await expect(page.locator('body')).toContainText(/邮件日志|Email Logs/i)
+      console.log('✓ Email logs page: content visible')
+    } finally {
+      await ctx.close()
+    }
+  })
+
   // ── 404 checks (separate test for each admin page) ──
 
   const allAdminPaths = [
@@ -263,6 +280,7 @@ test.describe('Admin authenticated tests @admin-auth', () => {
     '/admin/monitor',
     '/admin/workflows',
     '/admin/visitor-flow-rules',
+    '/admin/email-logs',
   ]
 
   for (const path of allAdminPaths) {
