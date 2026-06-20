@@ -3,7 +3,7 @@ import type { BrowserContext } from '@playwright/test'
 import { mkdirSync } from 'fs'
 import { join } from 'path'
 
-const base = 'https://study.jimmyyao.com'
+const base = process.env.BASE_URL || 'https://study.jimmyyao.com'
 const SCREENSHOTS_DIR = 'test-results/screenshots'
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://ycjuceortcduakxscfes.supabase.co'

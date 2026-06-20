@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test'
 import { mkdirSync } from 'fs'
 import { join } from 'path'
 
-const base = 'https://study.jimmyyao.com'
+const base = process.env.BASE_URL || 'https://study.jimmyyao.com'
 const SCREENSHOTS_DIR = 'test-results/screenshots'
 
 const adminPaths = [
