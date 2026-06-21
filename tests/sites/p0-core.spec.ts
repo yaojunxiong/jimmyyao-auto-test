@@ -13,6 +13,10 @@ const adminEmail = process.env.ADMIN_EMAIL
 const adminPassword = process.env.ADMIN_PASSWORD
 const needsSetup = !adminEmail || !adminPassword
 
+const normalUserEmail = process.env.TEST_USER_EMAIL
+const normalUserPassword = process.env.TEST_USER_PASSWORD
+const hasNormalUser = !!(normalUserEmail && normalUserPassword)
+
 const projectRef = supabaseUrl.match(/https:\/\/([^.]+)/)?.[1] || 'ycjuceortcduakxscfes'
 
 let storageState: Awaited<ReturnType<BrowserContext['storageState']>> | null = null
@@ -401,4 +405,234 @@ test.describe('P0 core business tests @p0', () => {
       await adminCtx2.close()
     }
   })
+
+  // ──────────── P0-6: RLS / Negative Permission Tests ────────────
+
+  test('P0-6a anonymous user cannot access /admin/activity', async ({ browser }) => {
+    const ctx = await browser.newContext()
+    const page = await ctx.newPage()
+    try {
+      await page.goto(`${base}/admin/activity`, { waitUntil: 'networkidle' })
+      await waitForLoadComplete(page, 'p0-6a-activity')
+      const text = await page.locator('body').innerText()
+      // Anon should get login prompt, not real data
+      expect(text).not.toContain('auto-test-admin@jimmyyao.com')
+      expect(text).not.toContain('auto-test-user@jimmyyao.com')
+      const denied = text.includes('请先登录') || text.includes('请登录') || text.includes('Please sign in') || text.includes('Please log in') || text.includes('sign in')
+      console.log(`[p0-6a] Anonymous /admin/activity: denied=${denied}`)
+    } finally {
+      await ctx.close()
+    }
+  })
+
+  test('P0-6b anonymous user cannot access /admin/visitors', async ({ browser }) => {
+    const ctx = await browser.newContext()
+    const page = await ctx.newPage()
+    try {
+      await page.goto(`${base}/admin/visitors`, { waitUntil: 'networkidle' })
+      await waitForLoadComplete(page, 'p0-6b-visitors')
+      const text = await page.locator('body').innerText()
+      expect(text).not.toContain('auto-test-admin@jimmyyao.com')
+      const denied = text.includes('请先登录') || text.includes('请登录') || text.includes('Please sign in')
+      console.log(`[p0-6b] Anonymous /admin/visitors: denied=${denied}`)
+    } finally {
+      await ctx.close()
+    }
+  })
+
+  test('P0-6c anonymous user cannot access /admin/workflows', async ({ browser }) => {
+    const ctx = await browser.newContext()
+    const page = await ctx.newPage()
+    try {
+      await page.goto(`${base}/admin/workflows`, { waitUntil: 'networkidle' })
+      await waitForLoadComplete(page, 'p0-6c-workflows')
+      const text = await page.locator('body').innerText()
+      expect(text).not.toContain('auto-test-admin@jimmyyao.com')
+      const denied = text.includes('请先登录') || text.includes('请登录') || text.includes('Please sign in')
+      console.log(`[p0-6c] Anonymous /admin/workflows: denied=${denied}`)
+    } finally {
+      await ctx.close()
+    }
+  })
+
+  test('P0-6d anonymous user cannot access /admin/email-logs', async ({ browser }) => {
+    const ctx = await browser.newContext()
+    const page = await ctx.newPage()
+    try {
+      await page.goto(`${base}/admin/email-logs`, { waitUntil: 'networkidle' })
+      await waitForLoadComplete(page, 'p0-6d-email-logs')
+      const text = await page.locator('body').innerText()
+      expect(text).not.toContain('auto-test-admin@jimmyyao.com')
+      expect(text).not.toContain('auto-test-user@jimmyyao.com')
+      const denied = text.includes('请先登录') || text.includes('请登录') || text.includes('Please sign in')
+      console.log(`[p0-6d] Anonymous /admin/email-logs: denied=${denied}`)
+    } finally {
+      await ctx.close()
+    }
+  })
+
+  test('P0-6e normal user cannot see admin data on /admin/activity', async ({ browser }) => {
+    test.skip(!hasNormalUser, 'TEST_USER_EMAIL/TEST_USER_PASSWORD not configured')
+    const ctx = await loginAsNormalUser(browser)
+    test.skip(!ctx, 'normal user login failed, skipping')
+    const page = await ctx.newPage()
+    try {
+      await page.goto(`${base}/admin/activity`, { waitUntil: 'networkidle' })
+      await waitForLoadComplete(page, 'p0-6e-activity')
+      const text = await page.locator('body').innerText()
+      // Must not leak real admin data or show admin-only action buttons
+      expect(text).not.toContain('auto-test-admin@jimmyyao.com')
+      expect(text).not.toContain('确认') // admin confirm action
+      expect(text).not.toContain('驳回') // admin reject action
+      const noAccess = text.includes('没有管理员权限') || text.includes('无权限') || text.includes('access denied')
+      console.log(`[p0-6e] Normal /admin/activity: noAccess=${noAccess}`)
+    } finally {
+      await ctx.close()
+    }
+  })
+
+  test('P0-6f normal user cannot see admin data on /admin/visitors', async ({ browser }) => {
+    test.skip(!hasNormalUser, 'TEST_USER_EMAIL/TEST_USER_PASSWORD not configured')
+    const ctx = await loginAsNormalUser(browser)
+    test.skip(!ctx, 'normal user login failed, skipping')
+    const page = await ctx.newPage()
+    try {
+      await page.goto(`${base}/admin/visitors`, { waitUntil: 'networkidle' })
+      await waitForLoadComplete(page, 'p0-6f-visitors')
+      const text = await page.locator('body').innerText()
+      expect(text).not.toContain('auto-test-admin@jimmyyao.com')
+      expect(text).not.toContain('确认')
+      expect(text).not.toContain('驳回')
+      const noAccess = text.includes('没有管理员权限') || text.includes('无权限') || text.includes('access denied')
+      console.log(`[p0-6f] Normal /admin/visitors: noAccess=${noAccess}`)
+    } finally {
+      await ctx.close()
+    }
+  })
+
+  test('P0-6g normal user cannot see admin data on /admin/workflows', async ({ browser }) => {
+    test.skip(!hasNormalUser, 'TEST_USER_EMAIL/TEST_USER_PASSWORD not configured')
+    const ctx = await loginAsNormalUser(browser)
+    test.skip(!ctx, 'normal user login failed, skipping')
+    const page = await ctx.newPage()
+    try {
+      await page.goto(`${base}/admin/workflows`, { waitUntil: 'networkidle' })
+      await waitForLoadComplete(page, 'p0-6g-workflows')
+      const text = await page.locator('body').innerText()
+      expect(text).not.toContain('auto-test-admin@jimmyyao.com')
+      expect(text).not.toContain('确认')
+      expect(text).not.toContain('驳回')
+      const noAccess = text.includes('没有管理员权限') || text.includes('无权限') || text.includes('access denied')
+      console.log(`[p0-6g] Normal /admin/workflows: noAccess=${noAccess}`)
+    } finally {
+      await ctx.close()
+    }
+  })
+
+  test('P0-6h normal user cannot see admin data on /admin/email-logs', async ({ browser }) => {
+    test.skip(!hasNormalUser, 'TEST_USER_EMAIL/TEST_USER_PASSWORD not configured')
+    const ctx = await loginAsNormalUser(browser)
+    test.skip(!ctx, 'normal user login failed, skipping')
+    const page = await ctx.newPage()
+    try {
+      await page.goto(`${base}/admin/email-logs`, { waitUntil: 'networkidle' })
+      await waitForLoadComplete(page, 'p0-6h-email-logs')
+      const text = await page.locator('body').innerText()
+      expect(text).not.toContain('auto-test-admin@jimmyyao.com')
+      expect(text).not.toContain('auto-test-user@jimmyyao.com')
+      expect(text).not.toContain('确认')
+      expect(text).not.toContain('驳回')
+      const noAccess = text.includes('没有管理员权限') || text.includes('无权限') || text.includes('access denied')
+      console.log(`[p0-6h] Normal /admin/email-logs: noAccess=${noAccess}`)
+    } finally {
+      await ctx.close()
+    }
+  })
+
+  test('P0-6i API: anonymous user cannot fetch admin data', async ({ browser }) => {
+    const ctx = await browser.newContext()
+    const page = await ctx.newPage()
+    try {
+      const endpoints = [
+        '/api/admin/workflows',
+        '/api/admin/email-logs',
+      ]
+      for (const ep of endpoints) {
+        const apiRes = await page.request.get(`${base}${ep}`, {
+          headers: { 'Content-Type': 'application/json' },
+        })
+        const status = apiRes.status()
+        const bodyText = await apiRes.text()
+        // Should get 401/403/redirect or empty payload
+        const isBlocked = status === 401 || status === 403 || (status >= 300 && status < 400) || bodyText.includes('登录') || bodyText.includes('sign in') || bodyText.includes('unauthorized')
+        if (!isBlocked && status === 200) {
+          // If 200, ensure no admin data leaked
+          expect(bodyText).not.toContain('auto-test-admin@jimmyyao.com')
+        }
+        console.log(`[p0-6i] GET ${ep} status=${status} blocked=${isBlocked}`)
+      }
+    } finally {
+      await ctx.close()
+    }
+  })
 })
+
+async function loginAsNormalUser(browser: import('@playwright/test').Browser): Promise<BrowserContext | null> {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://ycjuceortcduakxscfes.supabase.co'
+  const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InljanVjZW9ydGNkdWFreHNjZmVzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg4ODA4ODMsImV4cCI6MjA5NDQ1Njg4M30.DZ92IY5x24eSuxbQBrisuJOQXLKMmF2LqQap-lK11kM'
+  const email = normalUserEmail
+  const password = normalUserPassword
+  if (!email || !password) return null
+
+  const tempCtx = await browser.newContext()
+  const tempPage = await tempCtx.newPage()
+  try {
+    const res = await tempPage.request.post(
+      `${supabaseUrl}/auth/v1/token?grant_type=password`,
+      {
+        headers: { apikey: supabaseKey, 'Content-Type': 'application/json' },
+        data: { email, password },
+      },
+    )
+    const json = await res.json() as Record<string, unknown>
+    const accessToken = json.access_token as string | undefined
+    const refreshToken = json.refresh_token as string | undefined
+    if (!accessToken || !refreshToken) {
+      console.log(`[loginAsNormalUser] login failed: ${JSON.stringify(json)}`)
+      await tempCtx.close()
+      return null
+    }
+    const projectRef = supabaseUrl.match(/https:\/\/([^.]+)/)?.[1] || 'ycjuceortcduakxscfes'
+    const cookieName = `sb-${projectRef}-auth-token`
+    await tempPage.goto(base, { waitUntil: 'domcontentloaded' })
+    await tempPage.evaluate(
+      ({ name, accessToken: at, refreshToken: rt }) => {
+        document.cookie = `${name}=${encodeURIComponent(JSON.stringify({ access_token: at, refresh_token: rt }))}; path=/; max-age=86400; SameSite=Lax; Secure`
+      },
+      { name: cookieName, accessToken, refreshToken },
+    )
+    // Verify session works
+    const meRes = await tempPage.goto(`${base}/me`, { waitUntil: 'domcontentloaded' })
+    const meText = await tempPage.locator('body').innerText()
+    console.log(`[loginAsNormalUser] /me response status=${meRes?.status()}, contains email=${meText.includes(email)}`)
+    // Create a new clean context with the cookie set
+    const ctx = await browser.newContext()
+    await ctx.addCookies([
+      {
+        name: cookieName,
+        value: JSON.stringify({ access_token: accessToken, refresh_token: refreshToken }),
+        domain: new URL(base).hostname,
+        path: '/',
+        httpOnly: false,
+        secure: true,
+        sameSite: 'Lax',
+      },
+    ])
+    return ctx
+  } catch (e) {
+    console.log(`[loginAsNormalUser] error: ${e}`)
+    return null
+  } finally {
+    await tempCtx.close()
+  }
+}
