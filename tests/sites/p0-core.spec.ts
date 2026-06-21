@@ -377,8 +377,8 @@ test.describe('P0 core business tests @p0', () => {
 
       console.log(`[p0-5] Activity page shows "guest" or "anonymous" badge: ${activityText.includes('Guest') || activityText.includes('匿名') || activityText.includes('guest')}`)
 
-      // Should see the activity page with content (anonymous record or empty state)
-      const hasVisitorContent = activityText.includes('访客记录') || activityText.includes('Visitor') || activityText.includes('Activity') || activityText.includes('活动')
+      // Should see the activity page rendered (title + anonymous badge)
+      const hasVisitorContent = activityText.includes('系统访问审计日志') || activityText.includes('Access Audit Log') || activityText.includes('审计日志')
       expect(hasVisitorContent).toBe(true)
       console.log('[p0-5] Activity page rendered successfully')
     } finally {
