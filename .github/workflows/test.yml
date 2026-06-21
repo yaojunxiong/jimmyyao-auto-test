@@ -221,10 +221,26 @@ jobs:
         shell: bash
         run: |
           set +e
+          echo "=== Diagnostic: available JSON files ==="
+          for d in pw-artifacts /tmp/pw-artifacts; do
+            echo "--- ${d} ---"
+            if [ -d "$d" ]; then
+              ls -la "$d"/*.json 2>/dev/null || echo "  (no json files)"
+            else
+              echo "  (directory not found)"
+            fi
+          done
+
+          # Determine which directory has the JSON files
+          JSON_DIR="pw-artifacts"
+          if [ ! -d "$JSON_DIR" ] || ! ls "$JSON_DIR"/*.json >/dev/null 2>&1; then
+            JSON_DIR="/tmp/pw-artifacts"
+          fi
+          echo "JSON_DIR=${JSON_DIR}"
+
           COMMIT_ID=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
           ADMIN_CONFIGURED=${{ secrets.ADMIN_EMAIL != '' && secrets.ADMIN_PASSWORD != '' }}
           USER_CONFIGURED=${{ secrets.TEST_USER_EMAIL != '' && secrets.TEST_USER_PASSWORD != '' }}
-          P0_CONFIGURED=${{ secrets.ADMIN_EMAIL != '' && secrets.ADMIN_PASSWORD != '' }}
 
           cat > report.md << REPORTEOF
           # Production Regression Report
@@ -233,8 +249,6 @@ jobs:
           **Commit**: \`${COMMIT_ID}\`
           **Base URL**: ${BASE_URL}
           **Timestamp**: $(date -u '+%Y-%m-%d %H:%M UTC')
-
-          ## Smoke Test
           REPORTEOF
 
           parse_json() {
@@ -255,23 +269,28 @@ jobs:
             flaky = stats.get('flaky', 0)
             print(f'{total}|{passed}|{failed}|{skipped}|{flaky}')
 
-            # Print failed test details
-            for suite in data.get('suites', []):
-                for spec in suite.get('specs', []):
-                    ok = spec.get('ok', True)
-                    if not ok:
-                        title = spec.get('title', '?')
-                        # Get error message from first test
-                        tests = spec.get('tests', [])
-                        if tests:
-                            errs = tests[0].get('errors', [])
-                        else:
-                            errs = []
-                        msg = ''
-                        if errs:
-                            msg = (errs[0].get('message', '') or errs[0].get('snippet', '') or '').replace(chr(10), ' ')[:200]
-                        print(f'FAIL|{title}|{msg}')
-                    elif skipped:
+            def walk(suites):
+                for suite in suites:
+                    for spec in suite.get('specs', []):
+                        yield spec
+                    yield from walk(suite.get('suites', []))
+            for spec in walk(data.get('suites', [])):
+                ok = spec.get('ok', True)
+                if not ok:
+                    title = spec.get('title', '?')
+                    tests = spec.get('tests', [])
+                    if tests:
+                        errs = tests[0].get('errors', [])
+                    else:
+                        errs = []
+                    msg = ''
+                    if errs:
+                        msg = (errs[0].get('message', '') or errs[0].get('snippet', '') or '').replace(chr(10), ' ')[:200]
+                    print(f'FAIL|{title}|{msg}')
+                else:
+                    tests = spec.get('tests', [])
+                    is_skipped = any(t.get('status') in ('skipped', 'did not run') for t in tests) if tests else False
+                    if is_skipped:
                         title = spec.get('title', '?')
                         print(f'SKIP|{title}|')
             " 2>/dev/null
@@ -307,10 +326,9 @@ jobs:
             fi
           }
 
-          # Smoke
-          append_module "Homepage / site availability" "/tmp/pw-artifacts/smoke.json" ""
+          echo "## Smoke Test" >> report.md
+          append_module "Homepage / site availability" "${JSON_DIR}/smoke.json" ""
 
-          # Regression
           echo "" >> report.md
           echo "## Regression Tests" >> report.md
 
@@ -323,35 +341,38 @@ jobs:
             USER_MSG="TEST_USER_EMAIL / TEST_USER_PASSWORD not configured in Secrets"
           fi
 
-          append_module "Unauthenticated admin pages (@study)" "/tmp/pw-artifacts/study.json" ""
-          append_module "Admin authenticated (@admin-auth)" "/tmp/pw-artifacts/admin-auth.json" "$ADMIN_MSG"
-          append_module "Normal user e2e (@normal-user-e2e)" "/tmp/pw-artifacts/normal-user-e2e.json" "$USER_MSG"
-          append_module "P0 core business (@p0)" "/tmp/pw-artifacts/p0.json" "$ADMIN_MSG"
+          append_module "Unauthenticated admin pages (@study)" "${JSON_DIR}/study.json" ""
+          append_module "Admin authenticated (@admin-auth)" "${JSON_DIR}/admin-auth.json" "$ADMIN_MSG"
+          append_module "Normal user e2e (@normal-user-e2e)" "${JSON_DIR}/normal-user-e2e.json" "$USER_MSG"
+          append_module "P0 core business (@p0)" "${JSON_DIR}/p0.json" "$ADMIN_MSG"
 
-          # All test details
           echo "" >> report.md
           echo "## All Test Details" >> report.md
-          for json_file in /tmp/pw-artifacts/smoke.json /tmp/pw-artifacts/study.json /tmp/pw-artifacts/admin-auth.json /tmp/pw-artifacts/normal-user-e2e.json /tmp/pw-artifacts/p0.json; do
+          for name in smoke study admin-auth normal-user-e2e p0; do
+            json_file="${JSON_DIR}/${name}.json"
             if [ -f "$json_file" ]; then
-              group=$(basename "$json_file" .json)
               echo "" >> report.md
-              echo "### ${group}" >> report.md
+              echo "### ${name}" >> report.md
               echo '```' >> report.md
               python3 -c "
               import json
               with open('${json_file}') as f:
                   data = json.load(f)
-              for suite in data.get('suites', []):
-                  for spec in suite.get('specs', []):
-                      ok = spec.get('ok', True)
-                      tests = spec.get('tests', [])
-                      skipped = any(t.get('status') == 'skipped' or t.get('status') == 'did not run' for t in tests) if tests else False
-                      if not ok:
-                          print(f\"FAIL {spec.get('title', '?')}\")
-                      elif skipped:
-                          print(f\"SKIP {spec.get('title', '?')}\")
-                      else:
-                          print(f\"PASS {spec.get('title', '?')}\")
+              def walk(suites):
+                  for suite in suites:
+                      for spec in suite.get('specs', []):
+                          yield spec
+                      yield from walk(suite.get('suites', []))
+              for spec in walk(data.get('suites', [])):
+                  ok = spec.get('ok', True)
+                  tests = spec.get('tests', [])
+                  is_skipped = any(t.get('status') in ('skipped', 'did not run') for t in tests) if tests else False
+                  if not ok:
+                      print(f'FAIL {spec.get(\"title\", \"?\")}')
+                  elif is_skipped:
+                      print(f'SKIP {spec.get(\"title\", \"?\")}')
+                  else:
+                      print(f'PASS {spec.get(\"title\", \"?\")}')
               " 2>/dev/null >> report.md
               echo '```' >> report.md
             fi
@@ -361,6 +382,7 @@ jobs:
           echo "## Artifacts" >> report.md
           echo "- Regression report: \`regression-report\` (this file)" >> report.md
           echo "- Playwright HTML report + screenshots: \`regression-test-artifacts\`" >> report.md
+          echo "- JSON reports: \`pw-json\`" >> report.md
           echo "" >> report.md
           echo "---" >> report.md
           echo "_Report generated by GitHub Actions run \`${{ github.run_id }}\`_" >> report.md
