@@ -41,13 +41,18 @@ jobs:
           npx playwright test --grep '@smoke' --reporter json,html,list 2>&1 | tee pw-artifacts/smoke-raw.txt
           EXIT_CODE=${PIPESTATUS[0]}
           python3 -c "
-          import re, json
           with open('pw-artifacts/smoke-raw.txt') as f:
               content = f.read()
-          match = re.search(r'(\{.*\})', content, re.DOTALL)
-          if match:
-              with open('pw-artifacts/smoke.json', 'w') as out:
-                  out.write(match.group(1))
+          start = content.find('{')
+          if start >= 0:
+              depth = 0
+              for i in range(start, len(content)):
+                  if content[i] == '{': depth += 1
+                  elif content[i] == '}': depth -= 1
+                  if depth == 0:
+                      with open('pw-artifacts/smoke.json', 'w') as out:
+                          out.write(content[start:i+1])
+                      break
           "
           exit $EXIT_CODE
 
@@ -172,13 +177,18 @@ jobs:
           npx playwright test --grep '@p0' --reporter json,html,list 2>&1 | tee pw-artifacts/p0-raw.txt
           EXIT_CODE=${PIPESTATUS[0]}
           python3 -c "
-          import re, json
           with open('pw-artifacts/p0-raw.txt') as f:
               content = f.read()
-          match = re.search(r'(\{.*\})', content, re.DOTALL)
-          if match:
-              with open('pw-artifacts/p0.json', 'w') as out:
-                  out.write(match.group(1))
+          start = content.find('{')
+          if start >= 0:
+              depth = 0
+              for i in range(start, len(content)):
+                  if content[i] == '{': depth += 1
+                  elif content[i] == '}': depth -= 1
+                  if depth == 0:
+                      with open('pw-artifacts/p0.json', 'w') as out:
+                          out.write(content[start:i+1])
+                      break
           "
           exit $EXIT_CODE
         env:
