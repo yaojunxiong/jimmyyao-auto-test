@@ -1,7 +1,5 @@
 import { defineConfig } from '@playwright/test'
 
-const jsonOutput = process.env.PLAYWRIGHT_JSON_OUTPUT
-
 export default defineConfig({
   testDir: './tests',
   fullyParallel: true,
@@ -22,6 +20,5 @@ export default defineConfig({
   reporter: [
     ['html', { outputFolder: 'playwright-report' }],
     ['list'],
-    ...(jsonOutput ? [['json', { outputFile: jsonOutput }]] : []),
   ],
 })
