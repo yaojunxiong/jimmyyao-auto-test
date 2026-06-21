@@ -226,156 +226,156 @@ jobs:
           export TIMESTAMP=$(date -u '+%Y-%m-%d %H:%M UTC')
 
           python3 << 'PYEOF'
-import json, os, sys, glob
-
-CANDIDATE_DIRS = [
-    os.path.join(os.environ.get('GITHUB_WORKSPACE', ''), 'pw-artifacts'),
-    'pw-artifacts',
-    '/tmp/pw-artifacts',
-]
-
-def find_json_dir():
-    for d in CANDIDATE_DIRS:
-        if not d:
-            continue
-        if os.path.isdir(d):
-            files = sorted(glob.glob(os.path.join(d, '*.json')))
-            if files:
-                print(f"::debug::using dir={d} files={[os.path.basename(f) for f in files]}", file=sys.stderr)
-                return d
-    print("::warning::no JSON directory found with .json files", file=sys.stderr)
-    return None
-
-def parse_json(path):
-    if not os.path.isfile(path):
-        print(f"  [debug] file not found: {path}", file=sys.stderr)
-        return None
-    try:
-        with open(path) as f:
-            data = json.load(f)
-    except Exception as e:
-        print(f"  [debug] json parse error for {path}: {e}", file=sys.stderr)
-        return None
-    stats = data.get('stats', {})
-    total = stats.get('expected', 0) + stats.get('unexpected', 0) + stats.get('skipped', 0)
-    passed = stats.get('expected', 0)
-    failed = stats.get('unexpected', 0)
-    skipped = stats.get('skipped', 0)
-    flaky = stats.get('flaky', 0)
-    details = []
-    def walk(suites):
-        for suite in suites:
-            for spec in suite.get('specs', []):
-                yield spec
-            yield from walk(suite.get('suites', []))
-    for spec in walk(data.get('suites', [])):
-        ok = spec.get('ok', True)
-        title = spec.get('title', '?')
-        tests = spec.get('tests', [])
-        if not ok:
-            errs = tests[0].get('errors', []) if tests else []
-            msg = ''
-            if errs:
-                msg = (errs[0].get('message', '') or errs[0].get('snippet', '') or '').replace('\n', ' ')[:200]
-            details.append(('FAIL', title, msg))
-        else:
-            is_skipped = any(t.get('status') in ('skipped', 'did not run') for t in tests) if tests else False
-            details.append(('SKIP' if is_skipped else 'PASS', title, ''))
-    return {'total': total, 'passed': passed, 'failed': failed, 'skipped': skipped, 'flaky': flaky, 'details': details}
-
-json_dir = find_json_dir()
-print(f"JSON_DIR={json_dir}", file=sys.stderr)
-
-# Secret configuration (from env set by workflow)
-admin_configured = os.environ.get('ADMIN_CONFIGURED', 'false') == 'true'
-user_configured = os.environ.get('USER_CONFIGURED', 'false') == 'true'
-
-MODULES = [
-    ('Homepage / site availability', 'smoke.json', ''),
-    ('Unauthenticated admin pages (@study)', 'study.json', ''),
-    ('Admin authenticated (@admin-auth)', 'admin-auth.json', '' if admin_configured else 'ADMIN_EMAIL / ADMIN_PASSWORD not configured in Secrets'),
-    ('Normal user e2e (@normal-user-e2e)', 'normal-user-e2e.json', '' if user_configured else 'TEST_USER_EMAIL / TEST_USER_PASSWORD not configured in Secrets'),
-    ('P0 core business (@p0)', 'p0.json', '' if admin_configured else 'ADMIN_EMAIL / ADMIN_PASSWORD not configured in Secrets'),
-]
-
-lines = []
-lines.append('# Production Regression Report')
-lines.append('')
-lines.append(f"**Trigger**: {os.environ.get('TRIGGER', 'unknown')}")
-lines.append(f"**Commit**: `{os.environ.get('COMMIT_ID', 'unknown')}`")
-lines.append(f"**Base URL**: {os.environ.get('BASE_URL', 'unknown')}")
-lines.append(f"**Timestamp**: {os.environ.get('TIMESTAMP', 'unknown')}")
-lines.append('')
-
-# ── Summary section ──
-lines.append('## Smoke Test')
-for label, filename, skip_msg in MODULES[:1]:
-    path = os.path.join(json_dir, filename) if json_dir else filename
-    result = parse_json(path)
-    if result is None:
-        lines.append(f'  - **{label}**: ⚠️ no result file (runner may have failed)')
-    else:
-        d = result
-        if d['failed'] > 0:
-            lines.append(f'  - **{label}**: ❌ FAILED (pass={d["passed"]}, fail={d["failed"]}, skip={d["skipped"]}, flaky={d["flaky"]})')
-        elif d['passed'] == 0 and d['skipped'] > 0:
-            lines.append(f'  - **{label}**: ⏭️ ALL SKIPPED (total={d["total"]}, skip={d["skipped"]})')
-        else:
-            lines.append(f'  - **{label}**: ✅ PASSED (total={d["total"]}, pass={d["passed"]}, skip={d["skipped"]})')
-
-lines.append('')
-lines.append('## Regression Tests')
-for label, filename, skip_msg in MODULES[1:]:
-    path = os.path.join(json_dir, filename) if json_dir else filename
-    if skip_msg:
-        lines.append(f'  - **{label}**: ⏭️ {skip_msg}')
-        continue
-    result = parse_json(path)
-    if result is None:
-        lines.append(f'  - **{label}**: ⚠️ no result file (runner may have failed)')
-        continue
-    d = result
-    if d['failed'] > 0:
-        lines.append(f'  - **{label}**: ❌ FAILED (pass={d["passed"]}, fail={d["failed"]}, skip={d["skipped"]}, flaky={d["flaky"]})')
-        for status, title, msg in d['details']:
-            if status == 'FAIL':
-                lines.append(f'    - ❌ `{title}`: {msg}')
-        lines.append('    - Artifact: `regression-test-artifacts` (screenshots, videos, traces)')
-    elif d['passed'] == 0 and d['skipped'] > 0:
-        lines.append(f'  - **{label}**: ⏭️ ALL SKIPPED (total={d["total"]}, skip={d["skipped"]})')
-    else:
-        lines.append(f'  - **{label}**: ✅ PASSED (total={d["total"]}, pass={d["passed"]}, skip={d["skipped"]})')
-
-# ── All Test Details ──
-lines.append('')
-lines.append('## All Test Details')
-for label, filename, skip_msg in MODULES:
-    path = os.path.join(json_dir, filename) if json_dir else filename
-    result = parse_json(path)
-    if result is None:
-        continue
-    lines.append('')
-    lines.append(f'### {label}')
-    lines.append('```')
-    for status, title, msg in result['details']:
-        lines.append(f'{status} {title}')
-    lines.append('```')
-
-# ── Artifacts ──
-lines.append('')
-lines.append('## Artifacts')
-lines.append('- Regression report: `regression-report` (this file)')
-lines.append('- Playwright HTML report + screenshots: `regression-test-artifacts`')
-lines.append('- JSON reports: `pw-json`')
-lines.append('')
-lines.append('---')
-lines.append(f"_Report generated by GitHub Actions run `{os.environ.get('RUN_ID', 'unknown')}`_")
-
-report = '\n'.join(lines)
-with open('report.md', 'w') as f:
-    f.write(report)
-print('Report written to report.md', file=sys.stderr)
-PYEOF
+          import json, os, sys, glob
+          
+          CANDIDATE_DIRS = [
+              os.path.join(os.environ.get('GITHUB_WORKSPACE', ''), 'pw-artifacts'),
+              'pw-artifacts',
+              '/tmp/pw-artifacts',
+          ]
+          
+          def find_json_dir():
+              for d in CANDIDATE_DIRS:
+                  if not d:
+                      continue
+                  if os.path.isdir(d):
+                      files = sorted(glob.glob(os.path.join(d, '*.json')))
+                      if files:
+                          print(f"::debug::using dir={d} files={[os.path.basename(f) for f in files]}", file=sys.stderr)
+                          return d
+              print("::warning::no JSON directory found with .json files", file=sys.stderr)
+              return None
+          
+          def parse_json(path):
+              if not os.path.isfile(path):
+                  print(f"  [debug] file not found: {path}", file=sys.stderr)
+                  return None
+              try:
+                  with open(path) as f:
+                      data = json.load(f)
+              except Exception as e:
+                  print(f"  [debug] json parse error for {path}: {e}", file=sys.stderr)
+                  return None
+              stats = data.get('stats', {})
+              total = stats.get('expected', 0) + stats.get('unexpected', 0) + stats.get('skipped', 0)
+              passed = stats.get('expected', 0)
+              failed = stats.get('unexpected', 0)
+              skipped = stats.get('skipped', 0)
+              flaky = stats.get('flaky', 0)
+              details = []
+              def walk(suites):
+                  for suite in suites:
+                      for spec in suite.get('specs', []):
+                          yield spec
+                      yield from walk(suite.get('suites', []))
+              for spec in walk(data.get('suites', [])):
+                  ok = spec.get('ok', True)
+                  title = spec.get('title', '?')
+                  tests = spec.get('tests', [])
+                  if not ok:
+                      errs = tests[0].get('errors', []) if tests else []
+                      msg = ''
+                      if errs:
+                          msg = (errs[0].get('message', '') or errs[0].get('snippet', '') or '').replace('\n', ' ')[:200]
+                      details.append(('FAIL', title, msg))
+                  else:
+                      is_skipped = any(t.get('status') in ('skipped', 'did not run') for t in tests) if tests else False
+                      details.append(('SKIP' if is_skipped else 'PASS', title, ''))
+              return {'total': total, 'passed': passed, 'failed': failed, 'skipped': skipped, 'flaky': flaky, 'details': details}
+          
+          json_dir = find_json_dir()
+          print(f"JSON_DIR={json_dir}", file=sys.stderr)
+          
+          # Secret configuration (from env set by workflow)
+          admin_configured = os.environ.get('ADMIN_CONFIGURED', 'false') == 'true'
+          user_configured = os.environ.get('USER_CONFIGURED', 'false') == 'true'
+          
+          MODULES = [
+              ('Homepage / site availability', 'smoke.json', ''),
+              ('Unauthenticated admin pages (@study)', 'study.json', ''),
+              ('Admin authenticated (@admin-auth)', 'admin-auth.json', '' if admin_configured else 'ADMIN_EMAIL / ADMIN_PASSWORD not configured in Secrets'),
+              ('Normal user e2e (@normal-user-e2e)', 'normal-user-e2e.json', '' if user_configured else 'TEST_USER_EMAIL / TEST_USER_PASSWORD not configured in Secrets'),
+              ('P0 core business (@p0)', 'p0.json', '' if admin_configured else 'ADMIN_EMAIL / ADMIN_PASSWORD not configured in Secrets'),
+          ]
+          
+          lines = []
+          lines.append('# Production Regression Report')
+          lines.append('')
+          lines.append(f"**Trigger**: {os.environ.get('TRIGGER', 'unknown')}")
+          lines.append(f"**Commit**: `{os.environ.get('COMMIT_ID', 'unknown')}`")
+          lines.append(f"**Base URL**: {os.environ.get('BASE_URL', 'unknown')}")
+          lines.append(f"**Timestamp**: {os.environ.get('TIMESTAMP', 'unknown')}")
+          lines.append('')
+          
+          # ── Summary section ──
+          lines.append('## Smoke Test')
+          for label, filename, skip_msg in MODULES[:1]:
+              path = os.path.join(json_dir, filename) if json_dir else filename
+              result = parse_json(path)
+              if result is None:
+                  lines.append(f'  - **{label}**: ⚠️ no result file (runner may have failed)')
+              else:
+                  d = result
+                  if d['failed'] > 0:
+                      lines.append(f'  - **{label}**: ❌ FAILED (pass={d["passed"]}, fail={d["failed"]}, skip={d["skipped"]}, flaky={d["flaky"]})')
+                  elif d['passed'] == 0 and d['skipped'] > 0:
+                      lines.append(f'  - **{label}**: ⏭️ ALL SKIPPED (total={d["total"]}, skip={d["skipped"]})')
+                  else:
+                      lines.append(f'  - **{label}**: ✅ PASSED (total={d["total"]}, pass={d["passed"]}, skip={d["skipped"]})')
+          
+          lines.append('')
+          lines.append('## Regression Tests')
+          for label, filename, skip_msg in MODULES[1:]:
+              path = os.path.join(json_dir, filename) if json_dir else filename
+              if skip_msg:
+                  lines.append(f'  - **{label}**: ⏭️ {skip_msg}')
+                  continue
+              result = parse_json(path)
+              if result is None:
+                  lines.append(f'  - **{label}**: ⚠️ no result file (runner may have failed)')
+                  continue
+              d = result
+              if d['failed'] > 0:
+                  lines.append(f'  - **{label}**: ❌ FAILED (pass={d["passed"]}, fail={d["failed"]}, skip={d["skipped"]}, flaky={d["flaky"]})')
+                  for status, title, msg in d['details']:
+                      if status == 'FAIL':
+                          lines.append(f'    - ❌ `{title}`: {msg}')
+                  lines.append('    - Artifact: `regression-test-artifacts` (screenshots, videos, traces)')
+              elif d['passed'] == 0 and d['skipped'] > 0:
+                  lines.append(f'  - **{label}**: ⏭️ ALL SKIPPED (total={d["total"]}, skip={d["skipped"]})')
+              else:
+                  lines.append(f'  - **{label}**: ✅ PASSED (total={d["total"]}, pass={d["passed"]}, skip={d["skipped"]})')
+          
+          # ── All Test Details ──
+          lines.append('')
+          lines.append('## All Test Details')
+          for label, filename, skip_msg in MODULES:
+              path = os.path.join(json_dir, filename) if json_dir else filename
+              result = parse_json(path)
+              if result is None:
+                  continue
+              lines.append('')
+              lines.append(f'### {label}')
+              lines.append('```')
+              for status, title, msg in result['details']:
+                  lines.append(f'{status} {title}')
+              lines.append('```')
+          
+          # ── Artifacts ──
+          lines.append('')
+          lines.append('## Artifacts')
+          lines.append('- Regression report: `regression-report` (this file)')
+          lines.append('- Playwright HTML report + screenshots: `regression-test-artifacts`')
+          lines.append('- JSON reports: `pw-json`')
+          lines.append('')
+          lines.append('---')
+          lines.append(f"_Report generated by GitHub Actions run `{os.environ.get('RUN_ID', 'unknown')}`_")
+          
+          report = '\n'.join(lines)
+          with open('report.md', 'w') as f:
+              f.write(report)
+          print('Report written to report.md', file=sys.stderr)
+          PYEOF
 
       - name: Upload regression report
         if: always()
