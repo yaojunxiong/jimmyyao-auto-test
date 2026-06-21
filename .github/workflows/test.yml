@@ -37,16 +37,16 @@ jobs:
         shell: bash
         run: |
           set +e
-          mkdir -p /tmp/pw-artifacts
-          npx playwright test --grep '@smoke' --reporter json,html,list 2>&1 | tee /tmp/pw-artifacts/smoke-raw.txt
+          mkdir -p pw-artifacts
+          npx playwright test --grep '@smoke' --reporter json,html,list 2>&1 | tee pw-artifacts/smoke-raw.txt
           EXIT_CODE=${PIPESTATUS[0]}
           python3 -c "
           import re, json
-          with open('/tmp/pw-artifacts/smoke-raw.txt') as f:
+          with open('pw-artifacts/smoke-raw.txt') as f:
               content = f.read()
           match = re.search(r'(\{.*\})', content, re.DOTALL)
           if match:
-              with open('/tmp/pw-artifacts/smoke.json', 'w') as out:
+              with open('pw-artifacts/smoke.json', 'w') as out:
                   out.write(match.group(1))
           "
           exit $EXIT_CODE
@@ -64,7 +64,7 @@ jobs:
 
       - name: Upload smoke JSON report
         if: always()
-        run: mkdir -p smoke-json && cp /tmp/pw-artifacts/smoke.json smoke-json/ 2>/dev/null || true
+        run: mkdir -p smoke-json && cp pw-artifacts/smoke.json smoke-json/ 2>/dev/null || true
 
       - name: Upload smoke JSON artifact
         if: always()
@@ -106,16 +106,16 @@ jobs:
         shell: bash
         run: |
           set +e
-          mkdir -p /tmp/pw-artifacts
-          npx playwright test --grep '@study' --reporter json,html,list 2>&1 | tee /tmp/pw-artifacts/study-raw.txt
+          mkdir -p pw-artifacts
+          npx playwright test --grep '@study' --reporter json,html,list 2>&1 | tee pw-artifacts/study-raw.txt
           EXIT_CODE=${PIPESTATUS[0]}
           python3 -c "
           import re, json
-          with open('/tmp/pw-artifacts/study-raw.txt') as f:
+          with open('pw-artifacts/study-raw.txt') as f:
               content = f.read()
           match = re.search(r'(\{.*\})', content, re.DOTALL)
           if match:
-              with open('/tmp/pw-artifacts/study.json', 'w') as out:
+              with open('pw-artifacts/study.json', 'w') as out:
                   out.write(match.group(1))
           "
           exit $EXIT_CODE
@@ -124,16 +124,16 @@ jobs:
         shell: bash
         run: |
           set +e
-          mkdir -p /tmp/pw-artifacts
-          npx playwright test --grep '@admin-auth' --reporter json,html,list 2>&1 | tee /tmp/pw-artifacts/admin-auth-raw.txt
+          mkdir -p pw-artifacts
+          npx playwright test --grep '@admin-auth' --reporter json,html,list 2>&1 | tee pw-artifacts/admin-auth-raw.txt
           EXIT_CODE=${PIPESTATUS[0]}
           python3 -c "
           import re, json
-          with open('/tmp/pw-artifacts/admin-auth-raw.txt') as f:
+          with open('pw-artifacts/admin-auth-raw.txt') as f:
               content = f.read()
           match = re.search(r'(\{.*\})', content, re.DOTALL)
           if match:
-              with open('/tmp/pw-artifacts/admin-auth.json', 'w') as out:
+              with open('pw-artifacts/admin-auth.json', 'w') as out:
                   out.write(match.group(1))
           "
           exit $EXIT_CODE
@@ -145,16 +145,16 @@ jobs:
         shell: bash
         run: |
           set +e
-          mkdir -p /tmp/pw-artifacts
-          npx playwright test --grep '@normal-user-e2e' --reporter json,html,list 2>&1 | tee /tmp/pw-artifacts/normal-user-e2e-raw.txt
+          mkdir -p pw-artifacts
+          npx playwright test --grep '@normal-user-e2e' --reporter json,html,list 2>&1 | tee pw-artifacts/normal-user-e2e-raw.txt
           EXIT_CODE=${PIPESTATUS[0]}
           python3 -c "
           import re, json
-          with open('/tmp/pw-artifacts/normal-user-e2e-raw.txt') as f:
+          with open('pw-artifacts/normal-user-e2e-raw.txt') as f:
               content = f.read()
           match = re.search(r'(\{.*\})', content, re.DOTALL)
           if match:
-              with open('/tmp/pw-artifacts/normal-user-e2e.json', 'w') as out:
+              with open('pw-artifacts/normal-user-e2e.json', 'w') as out:
                   out.write(match.group(1))
           "
           exit $EXIT_CODE
@@ -168,16 +168,16 @@ jobs:
         shell: bash
         run: |
           set +e
-          mkdir -p /tmp/pw-artifacts
-          npx playwright test --grep '@p0' --reporter json,html,list 2>&1 | tee /tmp/pw-artifacts/p0-raw.txt
+          mkdir -p pw-artifacts
+          npx playwright test --grep '@p0' --reporter json,html,list 2>&1 | tee pw-artifacts/p0-raw.txt
           EXIT_CODE=${PIPESTATUS[0]}
           python3 -c "
           import re, json
-          with open('/tmp/pw-artifacts/p0-raw.txt') as f:
+          with open('pw-artifacts/p0-raw.txt') as f:
               content = f.read()
           match = re.search(r'(\{.*\})', content, re.DOTALL)
           if match:
-              with open('/tmp/pw-artifacts/p0.json', 'w') as out:
+              with open('pw-artifacts/p0.json', 'w') as out:
                   out.write(match.group(1))
           "
           exit $EXIT_CODE
@@ -201,11 +201,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: smoke-json
-          path: /tmp/pw-artifacts/
-
-      - name: Copy pw JSON files to workspace
-        if: always()
-        run: mkdir -p pw-artifacts && cp /tmp/pw-artifacts/*.json pw-artifacts/ 2>/dev/null || true
+          path: pw-artifacts/
 
       - name: Upload pw JSON artifacts
         if: always()
@@ -222,7 +218,7 @@ jobs:
         run: |
           set +e
           echo "=== Diagnostic: available JSON files ==="
-          for d in pw-artifacts /tmp/pw-artifacts; do
+          for d in pw-artifacts; do
             echo "--- ${d} ---"
             if [ -d "$d" ]; then
               ls -la "$d"/*.json 2>/dev/null || echo "  (no json files)"
@@ -231,11 +227,7 @@ jobs:
             fi
           done
 
-          # Determine which directory has the JSON files
           JSON_DIR="pw-artifacts"
-          if [ ! -d "$JSON_DIR" ] || ! ls "$JSON_DIR"/*.json >/dev/null 2>&1; then
-            JSON_DIR="/tmp/pw-artifacts"
-          fi
           echo "JSON_DIR=${JSON_DIR}"
 
           COMMIT_ID=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")

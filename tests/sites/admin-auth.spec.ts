@@ -80,8 +80,7 @@ test.describe('Admin authenticated tests @admin-auth', () => {
       )
 
       const body = await response.json()
-      console.log(`Auth API status: ${response.status()}`)
-      console.log(`Auth API response: ${JSON.stringify(body).slice(0, 200)}`)
+      console.log(`Auth API status: ${response.status()}, has access_token: ${!!body.access_token}`)
 
       if (body.access_token) {
         const expiresDate = body.expires_at
