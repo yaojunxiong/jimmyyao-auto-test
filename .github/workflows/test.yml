@@ -186,15 +186,19 @@ jobs:
               while idx >= 0 and content[idx] != '{':
                   idx -= 1
               if idx >= 0 and content[idx] == '{':
-                  depth = 0
-                  for i in range(idx, len(content)):
-                      if content[i] == '{': depth += 1
-                      elif content[i] == '}': depth -= 1
-                      if depth == 0:
-                          obj = content[idx:i+1]
+                  # Naive brace counting can fail when { appears inside
+                  # string values. Instead, find the last } in the file
+                  # (JSON is always the last output), then validate via
+                  # json.loads.
+                  end = content.rfind('}')
+                  if end > idx:
+                      obj = content[idx:end+1]
+                      try:
+                          json.loads(obj)
                           with open('pw-artifacts/p0.json', 'w') as out:
                               out.write(obj)
-                          break
+                      except json.JSONDecodeError:
+                          pass
           if not os.path.isfile('pw-artifacts/p0.json') or os.path.getsize('pw-artifacts/p0.json') == 0:
               with open('pw-artifacts/p0.json', 'w') as out:
                   out.write('{}')
