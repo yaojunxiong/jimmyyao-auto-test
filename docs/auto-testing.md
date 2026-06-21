@@ -102,7 +102,26 @@ npx playwright show-trace path/to/trace.zip
 
 ## 版本记录
 
-### v1.0 — 2026-06-18（已定版）
+### v1.0 — 2026-06-21（闭环）
+
+**闭环验证：**
+
+- Auto Test #46 ✅（run id: `27905793261`，commit: `1cba748`）
+- Smoke test: success
+- Regression test: success
+- report.md 已能正确读取 JSON，不再出现 no result file
+- P0 core business 全部 pass:
+  - P0-1 Approval buttons visibility per workflow status
+  - P0-2 Flowchart diagram renders with nodes and instance details
+  - P0-3 membership_application workflow filter
+  - P0-4 email_logs status badges and metadata
+- artifacts 正常产出：`regression-report` / `pw-json` / `regression-test-artifacts` / `smoke-json` / `smoke-test-artifacts`
+
+**安全基线达成：**
+
+- All JSON artifact 中无 `access_token` / `refresh_token` / JWT / cookie / storageState 明文
+- 所有登录日志只输出 `login success: true/false`，不暴露 token 字段名
+- 工作流中不会输出账号密码（secrets 只参与 `${{ }}` 布尔判断，不参与日志字符串拼接）
 
 **已完成：**
 
@@ -110,15 +129,24 @@ npx playwright show-trace path/to/trace.zip
 2. 支持 jimmyyao.com、www.jimmyyao.com、study.jimmyyao.com、next-app-kohl-one.vercel.app 多站点 smoke test。
 3. 支持 study 系统 /login、Google 登录入口、后台未登录拦截检查。
 4. GitHub Actions 支持 workflow_dispatch 手动触发。
-5. GitHub Actions 支持每日东京时间 8:00 自动巡检。
+5. GitHub Actions 支持每日东京时间 23:00（UTC 14:00）自动巡检。
 6. 支持 playwright-report artifact 上传。
 7. 支持失败截图、录屏、trace。
 8. /admin/visitors 当前 404 已标记为 known issue，后续需在业务项目中补齐或确认实际路径。
+9. 支持管理员登录态 admin-auth 测试 suite。
+10. 支持普通用户 e2e 测试 suite（含活动记录/访问记录/workflow 页面）。
+11. P0 core business 回归测试（审批按钮可见性、流程图渲染、会员申请过滤、邮件日志状态）。
+12. JSON 报告提取 → pw-json artifact → regression-report 全链路打通。
+13. 安全审计：console.log 经 regex 提取时无 token 泄漏风险。
 
-**v1.1 计划：**
+**v2.0 计划：**
 
 1. 主站到学习系统入口测试。
 2. 移动端截图测试。
 3. SEO meta 检查。
-4. GitHub Actions 失败通知。
-5. /admin/visitors 业务页面补齐跟踪。
+4. GitHub Actions 失败通知（Slack / Email）。
+5. GitHub Actions 定时触发由 UTC 14:00 改为 UTC 23:00 以适应生产发布窗口。
+6. 清洁项：`ADMIN_PASSWORD configured` / `TEST_USER_PASSWORD configured` 日志合并为 `admin credentials configured` / `test user credentials configured`，避免 artifact 中出现 password 字段名。
+
+---
+*Auto Test v1.0 闭环记录于 2026-06-21*
