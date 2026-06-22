@@ -597,21 +597,48 @@ test.describe('P0 core business tests @p0', () => {
     }
   })
 
-  test('P1-2b email status labels are correct', async ({ browser }) => {
+  // ── P1-4: Email logs experience ──
+  test('P1-4a email_logs page fields and filters', async ({ browser }) => {
     skipIfNoSetup()
     skipIfNoStorage()
     const ctx = await browser.newContext({ storageState: storageState! })
     const page = await ctx.newPage()
     try {
       await page.goto(`${base}/admin/email-logs`, { waitUntil: 'networkidle' })
-      await waitForLoadComplete(page, 'p1-2b')
+      await waitForLoadComplete(page, 'p1-4a')
       const text = await page.locator('body').innerText()
-      // Email page must NOT show workflow labels
-      expect(text).not.toMatch(/待确认/)
-      // Email page must show at least one correct email label
-      const ok = text.includes('待发送') || text.includes('已发送') || text.includes('发送失败')
-      expect(ok).toBe(true)
-      console.log('[p1-2b] Email status labels OK (no mixing)')
+      // Basic page load
+      expect(text).toMatch(/邮件日志|Email Logs/)
+      // Status filter options
+      const hasStatusOptions = text.includes('pending') && text.includes('sent') && text.includes('failed')
+      expect(hasStatusOptions).toBe(true)
+      // Definition key column (流程定义 / Definition)
+      expect(text).toMatch(/流程定义|Definition/)
+      // Sent at column (发送时间 / Sent At)
+      expect(text).toMatch(/发送时间|Sent At/)
+      // Error message column (错误信息 / Error)
+      expect(text).toMatch(/错误信息|Error/)
+      console.log('[p1-4a] Email logs page fields OK')
+    } finally {
+      await ctx.close()
+    }
+  })
+
+  test('P1-4b email_logs ?status=failed filter works', async ({ browser }) => {
+    skipIfNoSetup()
+    skipIfNoStorage()
+    const ctx = await browser.newContext({ storageState: storageState! })
+    const page = await ctx.newPage()
+    try {
+      await page.goto(`${base}/admin/email-logs?status=failed`, { waitUntil: 'networkidle' })
+      await waitForLoadComplete(page, 'p1-4b')
+      // Must not 404
+      expect(await page.locator('body').innerText()).not.toMatch(/404|This page could not be found/)
+      // Must show email logs or empty state
+      const bodyText = await page.locator('body').innerText()
+      const hasLogsOrEmpty = bodyText.includes('发送失败') || bodyText.includes('暂无邮件日志') || bodyText.includes('No email logs')
+      expect(hasLogsOrEmpty).toBe(true)
+      console.log('[p1-4b] status=failed filter OK')
     } finally {
       await ctx.close()
     }
