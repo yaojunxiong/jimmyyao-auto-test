@@ -575,6 +575,48 @@ test.describe('P0 core business tests @p0', () => {
       await ctx.close()
     }
   })
+
+  // ── P1-2: Workflow / Email status label consistency ──
+  test('P1-2a workflow status labels are correct', async ({ browser }) => {
+    skipIfNoSetup()
+    skipIfNoStorage()
+    const ctx = await browser.newContext({ storageState: storageState! })
+    const page = await ctx.newPage()
+    try {
+      await page.goto(`${base}/admin/workflows`, { waitUntil: 'networkidle' })
+      await waitForLoadComplete(page, 'p1-2a')
+      const text = await page.locator('body').innerText()
+      // Workflow page must NOT show email labels
+      expect(text).not.toMatch(/待发送/)
+      // Workflow page must show at least one correct workflow label
+      const ok = text.includes('待确认') || text.includes('已确认') || text.includes('已驳回') || text.includes('已完成')
+      expect(ok).toBe(true)
+      console.log('[p1-2a] Workflow status labels OK (no mixing)')
+    } finally {
+      await ctx.close()
+    }
+  })
+
+  test('P1-2b email status labels are correct', async ({ browser }) => {
+    skipIfNoSetup()
+    skipIfNoStorage()
+    const ctx = await browser.newContext({ storageState: storageState! })
+    const page = await ctx.newPage()
+    try {
+      await page.goto(`${base}/admin/email-logs`, { waitUntil: 'networkidle' })
+      await waitForLoadComplete(page, 'p1-2b')
+      const text = await page.locator('body').innerText()
+      // Email page must NOT show workflow labels
+      expect(text).not.toMatch(/待确认/)
+      // Email page must show at least one correct email label
+      const ok = text.includes('待发送') || text.includes('已发送') || text.includes('发送失败')
+      expect(ok).toBe(true)
+      console.log('[p1-2b] Email status labels OK (no mixing)')
+    } finally {
+      await ctx.close()
+    }
+  })
+
 })
 
 async function loginAsNormalUser(browser: import('@playwright/test').Browser): Promise<BrowserContext | null> {
