@@ -597,6 +597,26 @@ test.describe('P0 core business tests @p0', () => {
     }
   })
 
+  test('P1-2b email status labels are correct', async ({ browser }) => {
+    skipIfNoSetup()
+    skipIfNoStorage()
+    const ctx = await browser.newContext({ storageState: storageState! })
+    const page = await ctx.newPage()
+    try {
+      await page.goto(`${base}/admin/email-logs`, { waitUntil: 'networkidle' })
+      await waitForLoadComplete(page, 'p1-2b')
+      const text = await page.locator('body').innerText()
+      // Email page must NOT show workflow labels
+      expect(text).not.toMatch(/待确认/)
+      // Email page must show at least one correct email label
+      const ok = text.includes('待发送') || text.includes('已发送') || text.includes('发送失败')
+      expect(ok).toBe(true)
+      console.log('[p1-2b] Email status labels OK (no mixing)')
+    } finally {
+      await ctx.close()
+    }
+  })
+
   // ── P1-4: Email logs experience ──
   test('P1-4a email_logs page fields and filters', async ({ browser }) => {
     skipIfNoSetup()
