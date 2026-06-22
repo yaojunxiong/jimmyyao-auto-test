@@ -271,6 +271,8 @@ test.describe('Admin authenticated tests @admin-auth', () => {
   })
 
   // ── 404 checks (separate test for each admin page) ──
+  // Uses response status + visible DOM checks (not body.innerText) to avoid
+  // false positives from Next.js RSC payload containing "404" strings.
 
   const allAdminPaths = [
     '/admin/system',
@@ -289,12 +291,21 @@ test.describe('Admin authenticated tests @admin-auth', () => {
 
       const ctx = await browser.newContext({ storageState: storageState! })
       try {
-        const page = await visit(ctx, path)
+        const page = await ctx.newPage()
+        const response = await page.goto(`${base}${path}`, { waitUntil: 'domcontentloaded' })
         await waitForLoadComplete(page, `no404-${path}`)
-        const bodyText = await page.locator('body').innerText()
-        expect(/404/.test(bodyText)).toBe(false)
-        expect(/This page could not be found/i.test(bodyText)).toBe(false)
-        expect(/page not found/i.test(bodyText)).toBe(false)
+
+        // 1) Server response must not be 404
+        expect(response?.status()).not.toBe(404)
+
+        // 2) Visible page must not show the Next.js 404 h1 element
+        const h1Count = await page.locator('h1').filter({ hasText: '404' }).count()
+        expect(h1Count).toBe(0)
+
+        // 3) Visible page must not show "This page could not be found" (Next.js 404 text)
+        const notFoundVisible = page.locator('main, section, article').filter({ hasText: /This page could not be found/i })
+        await expect(notFoundVisible).toHaveCount(0)
+
         console.log(`✓ ${path}: no 404 detected`)
       } finally {
         await ctx.close()

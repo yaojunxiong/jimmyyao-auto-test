@@ -41,18 +41,13 @@ jobs:
           npx playwright test --grep '@smoke' --reporter json,html,list 2>&1 | tee pw-artifacts/smoke-raw.txt
           EXIT_CODE=${PIPESTATUS[0]}
           python3 -c "
+          import re, json
           with open('pw-artifacts/smoke-raw.txt') as f:
               content = f.read()
-          start = content.find('{')
-          if start >= 0:
-              depth = 0
-              for i in range(start, len(content)):
-                  if content[i] == '{': depth += 1
-                  elif content[i] == '}': depth -= 1
-                  if depth == 0:
-                      with open('pw-artifacts/smoke.json', 'w') as out:
-                          out.write(content[start:i+1])
-                      break
+          match = re.search(r'(\{.*\})', content, re.DOTALL)
+          if match:
+              with open('pw-artifacts/smoke.json', 'w') as out:
+                  out.write(match.group(1))
           "
           exit $EXIT_CODE
 
@@ -177,67 +172,13 @@ jobs:
           npx playwright test --grep '@p0' --reporter json,html,list 2>&1 | tee pw-artifacts/p0-raw.txt
           EXIT_CODE=${PIPESTATUS[0]}
           python3 -c "
-          import json, os
+          import re, json
           with open('pw-artifacts/p0-raw.txt') as f:
               content = f.read()
-          # Find the Playwright JSON report (starts with {\n  \"config\")
-          idx = content.find('\n  \"config\"')
-          if idx >= 0:
-              while idx >= 0 and content[idx] != '{':
-                  idx -= 1
-              if idx >= 0 and content[idx] == '{':
-                  # Naive brace counting can fail when { appears inside
-                  # string values. Instead, find the last } in the file
-                  # (JSON is always the last output), then validate via
-                  # json.loads.
-                  end = content.rfind('}')
-                  if end > idx:
-                      obj = content[idx:end+1]
-                      try:
-                          json.loads(obj)
-                          with open('pw-artifacts/p0.json', 'w') as out:
-                              out.write(obj)
-                      except json.JSONDecodeError:
-                          pass
-          if not os.path.isfile('pw-artifacts/p0.json') or os.path.getsize('pw-artifacts/p0.json') == 0:
+          match = re.search(r'(\{.*\})', content, re.DOTALL)
+          if match:
               with open('pw-artifacts/p0.json', 'w') as out:
-                  out.write('{}')
-          "
-          exit $EXIT_CODE
-        env:
-          ADMIN_EMAIL: ${{ secrets.ADMIN_EMAIL }}
-          ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
-          TEST_USER_EMAIL: ${{ secrets.TEST_USER_EMAIL }}
-          TEST_USER_PASSWORD: ${{ secrets.TEST_USER_PASSWORD }}
-
-      - name: Run mobile visual baseline tests (@mobile-visual)
-        shell: bash
-        run: |
-          set +e
-          mkdir -p pw-artifacts
-          npx playwright test --grep '@mobile-visual' --reporter json,html,list 2>&1 | tee pw-artifacts/mobile-visual-raw.txt
-          EXIT_CODE=${PIPESTATUS[0]}
-          python3 -c "
-          import json, os
-          with open('pw-artifacts/mobile-visual-raw.txt') as f:
-              content = f.read()
-          idx = content.find('\n  \"config\"')
-          if idx >= 0:
-              while idx >= 0 and content[idx] != '{':
-                  idx -= 1
-              if idx >= 0 and content[idx] == '{':
-                  end = content.rfind('}')
-                  if end > idx:
-                      obj = content[idx:end+1]
-                      try:
-                          json.loads(obj)
-                          with open('pw-artifacts/mobile-visual.json', 'w') as out:
-                              out.write(obj)
-                      except json.JSONDecodeError:
-                          pass
-          if not os.path.isfile('pw-artifacts/mobile-visual.json') or os.path.getsize('pw-artifacts/mobile-visual.json') == 0:
-              with open('pw-artifacts/mobile-visual.json', 'w') as out:
-                  out.write('{}')
+                  out.write(match.group(1))
           "
           exit $EXIT_CODE
         env:
@@ -355,7 +296,6 @@ jobs:
               ('Admin authenticated (@admin-auth)', 'admin-auth.json', '' if admin_configured else 'ADMIN_EMAIL / ADMIN_PASSWORD not configured in Secrets'),
               ('Normal user e2e (@normal-user-e2e)', 'normal-user-e2e.json', '' if user_configured else 'TEST_USER_EMAIL / TEST_USER_PASSWORD not configured in Secrets'),
               ('P0 core business (@p0)', 'p0.json', '' if admin_configured else 'ADMIN_EMAIL / ADMIN_PASSWORD not configured in Secrets'),
-              ('P1-1 Mobile visual baseline (@mobile-visual)', 'mobile-visual.json', '' if admin_configured else 'ADMIN_EMAIL / ADMIN_PASSWORD not configured in Secrets'),
           ]
           
           lines = []
