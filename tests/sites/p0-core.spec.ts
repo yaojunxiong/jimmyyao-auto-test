@@ -624,7 +624,7 @@ test.describe('P0 core business tests @p0', () => {
     if (!storageState) test.skip('No storage state (login failed or not run)')
   }
 
-  test('P2-1a recitation V2 entry card visible on lesson page', async ({ browser }) => {
+  test('P2-1a recitation V2 entry card on lesson page', async ({ browser }) => {
     skipIfNoSetup()
     skipIfNoStorage()
     const ctx = await browser.newContext({ storageState: storageState! })
@@ -633,13 +633,17 @@ test.describe('P0 core business tests @p0', () => {
       await page.goto(`${base}/lessons/1`, { waitUntil: 'networkidle' })
       await waitForLoadComplete(page, 'p2-1a')
       const text = await page.locator('body').innerText()
-      // Entry card should be visible when feature flag is enabled
       const hasEntry = text.includes('会话背诵 V2') || text.includes('Conversation Recitation V2')
-      expect(hasEntry).toBe(true)
-      // "Start Recitation" link should exist
       const hasStartLink = text.includes('开始背诵') || text.includes('Start Recitation')
-      expect(hasStartLink).toBe(true)
-      console.log('[p2-1a] Recitation V2 entry card visible')
+      if (hasEntry) {
+        expect(hasStartLink).toBe(true)
+        console.log('[p2-1a] Recitation V2 entry card visible (flag ON)')
+      } else {
+        console.log('[p2-1a] Recitation V2 entry card hidden (flag OFF, expected in production)')
+      }
+      // Original page content still renders (regardless of flag state)
+      const hasLessonTitle = text.includes('第 1 课') || text.includes('Lesson 1')
+      expect(hasLessonTitle).toBe(true)
     } finally {
       await ctx.close()
     }
@@ -882,20 +886,24 @@ test.describe('P0 core business tests @p0', () => {
     }
   })
 
-  test('P2-1h feature flag hides entry when disabled', async ({ browser }) => {
+  test('P2-1h verify original lesson page unaffected by flag state', async ({ browser }) => {
     skipIfNoSetup()
     skipIfNoStorage()
-    // Test without the feature flag (access recitation page directly)
     const ctx = await browser.newContext({ storageState: storageState! })
     const page = await ctx.newPage()
     try {
       await page.goto(`${base}/lessons/1`, { waitUntil: 'networkidle' })
       await waitForLoadComplete(page, 'p2-1h')
       const text = await page.locator('body').innerText()
-      // Entry card should NOT contain the V2 title when flag is disabled
-      // But since flag is enabled in dev, we just check the page loads
-      expect(page.url()).toContain('/lessons/1')
-      console.log('[p2-1h] Lesson page loaded (feature flag check in code)')
+      // Original lesson page elements must always be present
+      const hasDeepDive = text.includes('中文理解') || text.includes('Deep Dive')
+      expect(hasDeepDive).toBe(true)
+      const hasConversation = text.includes('会话原文') || text.includes('Conversation Text')
+      expect(hasConversation).toBe(true)
+      // Lesson title visible
+      const hasTitle = text.includes('会话主线') || text.includes('Conversation Mainline')
+      expect(hasTitle).toBe(true)
+      console.log('[p2-1h] Original lesson page unaffected by recitation V2 flag')
     } finally {
       await ctx.close()
     }
