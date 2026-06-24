@@ -823,7 +823,7 @@ test.describe('P0 core business tests @p0', () => {
     }
   })
 
-  test('P2-1g generate full audio button appears when all lines recorded', async ({ browser }) => {
+  test('P2-1g continuous bestTake playback replaces full audio generation', async ({ browser }) => {
     skipIfNoSetup()
     skipIfNoStorage()
     const testBrowser = await chromium.launch({
@@ -838,17 +838,62 @@ test.describe('P0 core business tests @p0', () => {
     try {
       await page.goto(`${base}/lessons/1/recitation`, { waitUntil: 'networkidle' })
       await waitForLoadComplete(page, 'p2-1g')
-      // Record on each line
+
+      const body = page.locator('body')
+
+      // Assertion 3, 4: old full-audio UI must never appear
+      await expect(body).not.toContainText('完整音频已生成')
+
+      // Assertion 1: "试听完整背诵" button is visible
+      const listenBtn = page.locator('button', { hasText: '试听完整背诵' })
+      await expect(listenBtn).toBeVisible()
+      console.log('[p2-1g] "试听完整背诵" button visible')
+
+      // Record on each line and select best take
       const lineRows = page.getByTestId('recitation-line-row')
       const rowCount = await lineRows.count()
-      console.log(`[p2-1g] Found ${rowCount} compact line rows`)
-      // Just test the first few lines to verify UI
-      // Record on first 3 lines
-      for (let i = 0; i < Math.min(rowCount, 3); i++) {
+      console.log(`[p2-1g] Found ${rowCount} line rows`)
+
+      for (let i = 0; i < rowCount; i++) {
         await lineRows.nth(i).click()
-        await recordRecitationTake(page, 1500)
+        await page.waitForTimeout(200)
+        await recordRecitationTake(page, 1200)
+
+        // Select this take as best
+        const bestBtns = page.locator('button', { hasText: '选为最佳' })
+        if (await bestBtns.count() > 0) {
+          await bestBtns.first().click()
+          await page.waitForTimeout(300)
+        }
       }
-      console.log('[p2-1g] Recorded on first lines')
+      console.log('[p2-1g] Recorded all lines')
+
+      await page.waitForTimeout(500)
+
+      // Assertion 2: if incomplete, show "还差 X 句"
+      const bodyText = await body.innerText()
+      const isDisabled = await listenBtn.isDisabled()
+      const missingMatch = bodyText.match(/还差 \d+ 句/)
+
+      if (isDisabled || missingMatch) {
+        expect(bodyText).toMatch(/还差 \d+ 句/)
+        console.log(`[p2-1g] Incomplete: "${missingMatch?.[0] ?? '(match failed)'}"`)
+      } else {
+        // Assertion 5: all lines have best takes — click enters playback
+        console.log('[p2-1g] All lines have best takes, clicking button')
+        await listenBtn.click()
+        await page.waitForTimeout(1500)
+
+        const progressVisible = await page.getByText(/正在试听完整背诵/).isVisible().catch(() => false)
+        const loadingVisible = await page.getByText('正在准备试听...').isVisible().catch(() => false)
+        expect(progressVisible || loadingVisible).toBe(true)
+        console.log(`[p2-1g] Playback state entered: ${progressVisible ? 'playing' : 'loading'}`)
+      }
+
+      // Assertion 3 enforced again: old full-audio UI never appears
+      await expect(body).not.toContainText('完整音频已生成')
+
+      await saveScreenshot(page, 'p2-1g-continuous-playback')
     } finally {
       await ctx.close()
       await testBrowser.close()
