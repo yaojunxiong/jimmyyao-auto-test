@@ -1027,7 +1027,6 @@ test.describe('P0 core business tests @p0', () => {
         const url = route.request().url()
         const method = route.request().method()
 
-        // Upload: first call fails, subsequent calls succeed
         if (method === 'POST' && url.includes('/upload')) {
           uploadCallCount++
           if (uploadCallCount === 1) {
@@ -1078,30 +1077,38 @@ test.describe('P0 core business tests @p0', () => {
 
       await page.goto(`${base}/lessons/1/recitation`, { waitUntil: 'networkidle' })
       await waitForLoadComplete(page, 'p0-2a-record')
+
+      // Click on the first line row to open its recordings panel
+      const lineRows = page.getByTestId('recitation-line-row')
+      await expect(lineRows.first()).toBeVisible({ timeout: 5000 })
+      await lineRows.first().click()
+      await page.waitForTimeout(300)
+
       await recordRecitationTake(page, 1500)
 
-      // Wait for the floating bar to finish (score message or upload error)
-      await page.waitForTimeout(2000)
+      // Wait for floating bar to show upload error message
+      await expect(page.getByText(/上传失败|请登录/)).toBeVisible({ timeout: 15000 })
+      console.log('[p0-2a] Upload error message visible in floating bar')
 
-      // Check for upload failure badge in recordings panel
+      // Wait for recordings panel to show "上传失败" badge
+      await page.waitForTimeout(1000)
       const failBadge = page.getByText('上传失败')
       await expect(failBadge.first()).toBeVisible({ timeout: 10000 })
-      console.log('[p0-2a] Upload failure badge visible')
+      console.log('[p0-2a] Upload failure badge visible in recordings panel')
 
-      // Click retry button
-      const retryBtn = page.locator('button', { hasText: '重试' })
+      // Click retry button in the recordings panel
+      const retryBtn = page.locator('button:has-text("重试")')
       await expect(retryBtn.first()).toBeVisible({ timeout: 5000 })
       await retryBtn.first().click()
       console.log('[p0-2a] Retry button clicked')
 
-      // Wait for retry to complete (upload badge should change)
-      await page.waitForTimeout(2000)
+      // Wait for retry upload to complete
+      await page.waitForTimeout(3000)
 
-      // The "上传失败" badge should no longer be present (retry succeeded)
-      const failBadgeAfter = page.getByText('上传失败')
-      const failCount = await failBadgeAfter.count()
-      expect(failCount).toBe(0)
-      console.log('[p0-2a] Retry succeeded, no failure badge')
+      // After retry succeeds the "上传失败" badge should disappear
+      const failBadgeAfter = page.locator('text=上传失败')
+      await expect(failBadgeAfter).toHaveCount(0, { timeout: 10000 })
+      console.log('[p0-2a] Retry succeeded, failure badge removed')
 
       await saveScreenshot(page, 'p0-2a-upload-retry')
     } finally {
