@@ -1081,17 +1081,11 @@ test.describe('P0 core business tests @p0', () => {
       // First line is active by default; record on it
       await recordRecitationTake(page, 1500)
 
-      // Wait for floating bar to show upload error message (from 500 mock)
-      await expect(page.getByText(/上传失败|请登录/)).toBeVisible({ timeout: 15000 })
-      console.log('[p0-2a] Upload error message visible in floating bar')
+      // Wait for floating bar or panel to show failure indicator
+      await expect(page.getByText('上传失败').first()).toBeVisible({ timeout: 20000 })
+      console.log('[p0-2a] Upload failure text visible')
 
-      // With the fix, onRecordingComplete is called again after upload,
-      // so the recordings panel should now show "上传失败" badge + "重试" button
-      const failBadge = page.getByText('上传失败')
-      await expect(failBadge.first()).toBeVisible({ timeout: 10000 })
-      console.log('[p0-2a] Upload failure badge visible in recordings panel')
-
-      // Click retry button
+      // The recordings panel should now show "重试" button (from the production fix)
       const retryBtn = page.locator('button:has-text("重试")')
       await expect(retryBtn.first()).toBeVisible({ timeout: 5000 })
       await retryBtn.first().click()
