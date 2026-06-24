@@ -1314,16 +1314,25 @@ test.describe('P0 core business tests @p0', () => {
     }
   })
 
-  // ── P0-3a: WebKit unsupported browser detection ──
-  test('P0-3a WebKit iOS unsupported shows clear message', async ({ browser }) => {
+  // ── P0-3a: unsupported browser detection (MediaRecorder unavailable) ──
+  test('P0-3a unsupported browser shows clear message', async ({ browser }) => {
     skipIfNoSetup()
     skipIfNoStorage()
     const ctx = await browser.newContext({
       storageState: storageState!,
-      userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1',
     })
     const page = await ctx.newPage()
     try {
+      // Mock MediaRecorder.isTypeSupported to return false for all types,
+      // simulating an iOS Safari scenario where MediaRecorder exists but no formats are supported
+      await page.addInitScript(() => {
+        if (typeof MediaRecorder !== 'undefined') {
+          MediaRecorder.isTypeSupported = () => false
+        } else {
+          // If MediaRecorder entirely absent, leave it — the code already handles that
+        }
+      })
+
       await page.goto(`${base}/lessons/1/recitation`, { waitUntil: 'networkidle' })
       await waitForLoadComplete(page, 'p0-3a')
 
@@ -1335,11 +1344,11 @@ test.describe('P0 core business tests @p0', () => {
 
       // Should see the unsupported browser message
       const bodyText = await page.locator('body').innerText()
-      const hasUnsupportedMsg = bodyText.includes('当前浏览器不支持录音') || bodyText.includes('不支持录音')
+      const hasUnsupportedMsg = bodyText.includes('当前浏览器不支持录音')
       expect(hasUnsupportedMsg).toBe(true)
-      console.log('[p0-3a] Unsupported browser message shown on iOS userAgent')
+      console.log('[p0-3a] Unsupported browser message shown when MediaRecorder unavailable')
 
-      await saveScreenshot(page, 'p0-3a-ios-unsupported')
+      await saveScreenshot(page, 'p0-3a-unsupported')
     } finally {
       await ctx.close()
     }
