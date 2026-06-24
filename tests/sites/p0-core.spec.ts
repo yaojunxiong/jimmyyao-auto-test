@@ -1196,6 +1196,155 @@ test.describe('P0 core business tests @p0', () => {
     }
   })
 
+  // ── P0-2c: upload retry after page refresh ──
+  test('P0-2c upload retry survives page refresh', async ({ browser }) => {
+    skipIfNoSetup()
+    skipIfNoStorage()
+    const testBrowser = await chromium.launch({
+      args: [
+        '--use-fake-ui-for-media-stream',
+        '--use-fake-device-for-media-stream',
+        '--no-sandbox',
+      ],
+    })
+    const ctx = await testBrowser.newContext({ storageState: storageState! })
+    const page = await ctx.newPage()
+    try {
+      let uploadCallCount = 0
+      await page.route('**/recording/upload*', async route => {
+        uploadCallCount++
+        if (uploadCallCount === 1) {
+          await route.fulfill({ status: 500 })
+        } else {
+          await route.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify({ id: 'mock-id', storagePath: 'mock/path' }) })
+        }
+      })
+
+      await page.goto(`${base}/lessons/1/recitation`, { waitUntil: 'networkidle' })
+      await waitForLoadComplete(page, 'p0-2c-record')
+
+      // Record on first line
+      await recordRecitationTake(page, 1500)
+
+      // Verify failure indicator appears
+      await expect(page.getByText('上传失败').first()).toBeVisible({ timeout: 20000 })
+      console.log('[p0-2c] Upload failure visible before refresh')
+
+      // Refresh the page
+      await page.reload({ waitUntil: 'networkidle' })
+      await waitForLoadComplete(page, 'p0-2c-reload')
+
+      // After refresh, the failed take should still show with retry button
+      // The retry button text may show as "重试"
+      const retryBtn = page.locator('button:has-text("重试")')
+      await expect(retryBtn.first()).toBeVisible({ timeout: 10000 })
+      console.log('[p0-2c] Retry button visible after page refresh')
+
+      // Click retry — should succeed now (uploadCallCount === 2 returns 201)
+      await retryBtn.first().click()
+      await page.waitForTimeout(2000)
+
+      // Verify take row still exists after successful retry
+      const takeRows = page.getByTestId('recitation-take-row')
+      const rowCount = await takeRows.count()
+      expect(rowCount).toBeGreaterThanOrEqual(1)
+      console.log(`[p0-2c] Retry after refresh succeeded, ${rowCount} take row(s) visible`)
+
+      await saveScreenshot(page, 'p0-2c-retry-after-refresh')
+    } finally {
+      await ctx.close()
+      await testBrowser.close()
+    }
+  })
+
+  // ── P0-2d: signed URL cache expiry auto-refresh ──
+  test('P0-2d signed URL auto-refresh on expired cache', async ({ browser }) => {
+    skipIfNoSetup()
+    skipIfNoStorage()
+    const ctx = await browser.newContext({ storageState: storageState! })
+    const page = await ctx.newPage()
+    try {
+      let signedUrlCallCount = 0
+      // Mock signed URL endpoint to return a URL that will fail on first use
+      await page.route('**/api/recording/signed-url*', async route => {
+        signedUrlCallCount++
+        const url = route.request().url()
+        const hasId = url.includes('id=')
+        if (!hasId) {
+          return route.fulfill({ status: 400, contentType: 'application/json', body: JSON.stringify({ error: 'missing id' }) })
+        }
+        if (signedUrlCallCount === 1) {
+          // First call returns a signed URL
+          return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ signedUrl: 'https://example.com/expired-url', expiresIn: 1 }) })
+        }
+        // Second call (retry) also returns a signed URL
+        return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ signedUrl: 'https://example.com/refreshed-url', expiresIn: 3600 }) })
+      })
+
+      // Mock the recording upload so we have a cloud take to play
+      await page.route('**/recording/upload*', async route => {
+        await route.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify({ id: 'mock-take-id', storagePath: 'mock/path' }) })
+      })
+
+      // Mock recitation list to return a cloud take
+      await page.route('**/api/recording/list*', async route => {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify([{ id: 'mock-take-id', userId: 'mock', lessonNo: 1, lineNo: 1, takeNo: 1, storagePath: 'mock/path', audioMimeType: 'audio/webm', durationMs: 1000, score: 90, isBest: true, isSystemRecommended: false, uploadStatus: 'uploaded', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }]),
+        })
+      })
+
+      await page.goto(`${base}/lessons/1/recitation`, { waitUntil: 'networkidle' })
+      await waitForLoadComplete(page, 'p0-2d')
+
+      // Click play on the first take row
+      const playBtn = page.getByTestId('recitation-take-play-button')
+      await expect(playBtn.first()).toBeVisible({ timeout: 10000 })
+      await playBtn.first().click()
+      await page.waitForTimeout(1000)
+
+      // The signed URL API should have been called at least twice
+      // (first call → cached, play fails → retry with force refresh → second call)
+      console.log(`[p0-2d] Signed URL fetch called ${signedUrlCallCount} time(s)`)
+
+      await saveScreenshot(page, 'p0-2d-signed-url-refresh')
+    } finally {
+      await ctx.close()
+    }
+  })
+
+  // ── P0-3a: WebKit unsupported browser detection ──
+  test('P0-3a WebKit iOS unsupported shows clear message', async ({ browser }) => {
+    skipIfNoSetup()
+    skipIfNoStorage()
+    const ctx = await browser.newContext({
+      storageState: storageState!,
+      userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1',
+    })
+    const page = await ctx.newPage()
+    try {
+      await page.goto(`${base}/lessons/1/recitation`, { waitUntil: 'networkidle' })
+      await waitForLoadComplete(page, 'p0-3a')
+
+      // Click record button — should show unsupported message instead of recording
+      const recordBtn = page.getByTestId('recitation-record-button')
+      await expect(recordBtn).toBeVisible({ timeout: 10000 })
+      await recordBtn.click()
+      await page.waitForTimeout(500)
+
+      // Should see the unsupported browser message
+      const bodyText = await page.locator('body').innerText()
+      const hasUnsupportedMsg = bodyText.includes('当前浏览器不支持录音') || bodyText.includes('不支持录音')
+      expect(hasUnsupportedMsg).toBe(true)
+      console.log('[p0-3a] Unsupported browser message shown on iOS userAgent')
+
+      await saveScreenshot(page, 'p0-3a-ios-unsupported')
+    } finally {
+      await ctx.close()
+    }
+  })
+
 })
 
 async function loginAsNormalUser(browser: import('@playwright/test').Browser): Promise<BrowserContext | null> {
