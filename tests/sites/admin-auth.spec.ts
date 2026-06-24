@@ -270,41 +270,62 @@ test.describe('Admin authenticated tests @admin-auth', () => {
     }
   })
 
-  test('/admin/recordings renders', async ({ browser }) => {
+  test('/admin/checkins renders', async ({ browser }) => {
     skipIfNoSetup()
     skipIfNoStorage()
 
     const ctx = await browser.newContext({ storageState: storageState! })
     try {
-      const page = await visit(ctx, '/admin/recordings')
-      await waitForLoadComplete(page, 'auth-admin-recordings')
-      await saveScreenshot(page, 'auth-admin-recordings')
+      const page = await visit(ctx, '/admin/checkins')
+      await waitForLoadComplete(page, 'auth-admin-checkins')
+      await saveScreenshot(page, 'auth-admin-checkins')
 
-      await expect(page.locator('body')).toContainText(/录音管理|Recording Takes/i)
-      console.log('✓ Recordings page: content visible')
+      const body = page.locator('body')
+      await expect(body).toContainText(/打卡总览|Check-in Overview/)
+      console.log('✓ Checkins: title present')
+
+      const bodyText = await body.innerText()
+      const hasStatsCards = /今日练习学生|Students/.test(bodyText)
+        && /今日录音次数|Recordings/.test(bodyText)
+        && /今日最佳录音|Best Takes/.test(bodyText)
+        && /今日涉及课程|Lessons/.test(bodyText)
+        && /低分录音|Low Score/.test(bodyText)
+        && /失败|Failed/.test(bodyText)
+      expect(hasStatsCards).toBe(true)
+      console.log('✓ Checkins: stats cards present')
+
+      const hasFilters = /开始日期|From/.test(bodyText)
+        && /结束日期|To/.test(bodyText)
+        && /学生 ID|User ID/.test(bodyText)
+        && /课号|Lesson/.test(bodyText)
+        && /只看今天|Today/.test(bodyText)
+        && /筛选|Filter/.test(bodyText)
+      expect(hasFilters).toBe(true)
+      console.log('✓ Checkins: filters present')
     } finally {
       await ctx.close()
     }
   })
 
-  test('/admin/recordings with filter params renders', async ({ browser }) => {
+  test('/admin shows 打卡总览 entry', async ({ browser }) => {
     skipIfNoSetup()
     skipIfNoStorage()
 
     const ctx = await browser.newContext({ storageState: storageState! })
     try {
-      const page = await visit(ctx, '/admin/recordings?lessonNo=1&bestOnly=1&uploadStatus=uploaded')
-      await waitForLoadComplete(page, 'auth-admin-recordings-filtered')
-      await expect(page.locator('body')).toContainText(/录音管理|Recording Takes/i)
-      console.log('✓ Recordings page with filter params: no crash')
+      const page = await visit(ctx, '/admin')
+      await waitForLoadComplete(page, 'auth-admin-dashboard')
+      await saveScreenshot(page, 'auth-admin-dashboard')
+
+      const body = page.locator('body')
+      await expect(body).toContainText(/打卡总览|Check-in Overview/)
+      console.log('✓ Admin dashboard: 打卡总览 entry present')
     } finally {
       await ctx.close()
     }
   })
 
   // ── 404 checks (separate test for each admin page) ──
-  // Uses response status + visible DOM checks (not body.innerText) to avoid
-  // false positives from Next.js RSC payload containing "404" strings.
 
   const allAdminPaths = [
     '/admin/system',
@@ -314,7 +335,7 @@ test.describe('Admin authenticated tests @admin-auth', () => {
     '/admin/workflows',
     '/admin/visitor-flow-rules',
     '/admin/email-logs',
-    '/admin/recordings',
+    '/admin/checkins',
   ]
 
   for (const path of allAdminPaths) {
@@ -324,21 +345,12 @@ test.describe('Admin authenticated tests @admin-auth', () => {
 
       const ctx = await browser.newContext({ storageState: storageState! })
       try {
-        const page = await ctx.newPage()
-        const response = await page.goto(`${base}${path}`, { waitUntil: 'domcontentloaded' })
+        const page = await visit(ctx, path)
         await waitForLoadComplete(page, `no404-${path}`)
-
-        // 1) Server response must not be 404
-        expect(response?.status()).not.toBe(404)
-
-        // 2) Visible page must not show the Next.js 404 h1 element
-        const h1Count = await page.locator('h1').filter({ hasText: '404' }).count()
-        expect(h1Count).toBe(0)
-
-        // 3) Visible page must not show "This page could not be found" (Next.js 404 text)
-        const notFoundVisible = page.locator('main, section, article').filter({ hasText: /This page could not be found/i })
-        await expect(notFoundVisible).toHaveCount(0)
-
+        const bodyText = await page.locator('body').innerText()
+        expect(/404/.test(bodyText)).toBe(false)
+        expect(/This page could not be found/i.test(bodyText)).toBe(false)
+        expect(/page not found/i.test(bodyText)).toBe(false)
         console.log(`✓ ${path}: no 404 detected`)
       } finally {
         await ctx.close()

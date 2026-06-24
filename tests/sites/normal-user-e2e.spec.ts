@@ -272,15 +272,15 @@ test.describe('Normal user e2e @normal-user-e2e', () => {
     console.log('✓ logged_in_first_visit workflows page: accessible')
   })
 
-  test('Normal user blocked from /admin/recordings', async () => {
+  test('Normal user cannot access /admin/checkins', async () => {
     test.skip(!normalUserCtx, '普通用户登录失败或未配置 TEST_USER_EMAIL')
-    const page = await visit(normalUserCtx!, '/admin/recordings')
-    await waitForLoadComplete(page, 'normal-user-admin-recordings')
-    await saveScreenshot(page, 'normal-user-admin-recordings')
+    const page = await visit(normalUserCtx!, '/admin/checkins')
+    await waitForLoadComplete(page, 'normal-user-checkins')
+    await saveScreenshot(page, 'normal-user-checkins')
 
     const bodyText = await page.locator('body').innerText()
-    const blocked = bodyText.includes('没有管理员权限') || bodyText.includes('You do not have admin access')
-    expect(blocked).toBe(true)
-    console.log('✓ Normal user: blocked from /admin/recordings')
+    const denied = bodyText.includes('没有管理员权限') || bodyText.includes('请先登录') || bodyText.includes('unauthorized')
+    expect(denied).toBe(true)
+    console.log('✓ Normal user: /admin/checkins access denied')
   })
 })

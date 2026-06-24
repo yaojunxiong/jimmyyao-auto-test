@@ -12,6 +12,7 @@ const adminPaths = [
   '/admin/monitor',
   '/admin/workflows',
   '/admin/visitor-flow-rules',
+  '/admin/checkins',
 ]
 
 const loginKeywords = [
