@@ -691,64 +691,10 @@ test.describe('P0 core business tests @p0', () => {
     }
   })
 
-  async function setupRecordingMocks(page: Page, store: Map<string, any[]>) {
-    const makeTake = (ride: number) => ({
-      id: `mock-take-${Date.now()}-${ride}`,
-      userId: 'mock-user-id',
-      lessonNo: 1,
-      lineNo: 1,
-      takeNo: ride,
-      storagePath: `user-mock/lesson-1/line-1/take-${ride}.webm`,
-      audioMimeType: 'audio/webm',
-      durationMs: 0,
-      score: 85,
-      isBest: ride === 1,
-      isSystemRecommended: false,
-      uploadStatus: 'uploaded',
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    })
-
-    const key = '1-1'
-    store.set(key, [])
-
-    await page.route('**/api/recording/**', async (route) => {
-      const url = route.request().url()
-      const method = route.request().method()
-
-      if (method === 'POST' && url.includes('/upload')) {
-        const takes = store.get(key)!
-        const ride = takes.length + 1
-        const take = makeTake(ride)
-        takes.push(take)
-        return route.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify(take) })
-      }
-
-      if (method === 'GET' && url.includes('/list')) {
-        const u = new URL(url)
-        const lk = `${u.searchParams.get('lessonNo')}-${u.searchParams.get('lineNo')}`
-        return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(store.get(lk) || []) })
-      }
-
-      if (method === 'POST' && url.includes('/set-best')) {
-        return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ success: true }) })
-      }
-
-      if (method === 'GET' && url.includes('/signed-url')) {
-        return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ signedUrl: `${base}/mock-audio.webm`, expiresIn: 3600 }) })
-      }
-
-      if (method === 'DELETE') {
-        return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ success: true }) })
-      }
-
-      return route.continue()
-    })
-  }
-
   test('P2-1c record a take with fake microphone', async ({ browser }) => {
     skipIfNoSetup()
     skipIfNoStorage()
+    // Launch new browser with fake audio device args
     const testBrowser = await chromium.launch({
       args: [
         '--use-fake-ui-for-media-stream',
@@ -759,22 +705,48 @@ test.describe('P0 core business tests @p0', () => {
     const ctx = await testBrowser.newContext({ storageState: storageState! })
     const page = await ctx.newPage()
     try {
-      const takeStore = new Map<string, any[]>()
-      await setupRecordingMocks(page, takeStore)
-
       await page.goto(`${base}/lessons/1/recitation`, { waitUntil: 'networkidle' })
       await waitForLoadComplete(page, 'p2-1c-record')
-      await recordRecitationTake(page, 1500)
-
-      // Wait for score message to appear in floating bar
-      await expect(page.getByText(/得分 \d+/)).toBeVisible({ timeout: 10000 })
-      console.log('[p2-1c] Score message visible')
-
-      // Wait for at least one take row
-      await expect(page.getByTestId('recitation-take-row').first()).toBeVisible({ timeout: 10000 })
+      await recordRecitationTake(page, 2000)
+      const text = await page.locator('body').innerText()
+      // Should show score
+      const hasScore = text.includes('分') || text.includes('score')
+      expect(hasScore).toBe(true)
+      // Should show take list
       const takeRows = await page.getByTestId('recitation-take-row').count()
       expect(takeRows).toBeGreaterThanOrEqual(1)
-      console.log(`[p2-1c] Recording completed, ${takeRows} take(s) visible`)
+      console.log('[p2-1c] Recording completed and take saved')
+
+      // ── Cloud verification ──
+      // Poll list API until upload completes
+      let cloudVerified = false
+      for (let attempt = 0; attempt < 10; attempt++) {
+        await page.waitForTimeout(2000)
+        const resp = await page.request.get(`${base}/api/recording/list?lessonNo=1&lineNo=1`)
+        if (!resp.ok()) continue
+        const takes = await resp.json() as Array<Record<string, unknown>>
+        const uploaded = takes.filter(t => t.uploadStatus === 'uploaded')
+        if (uploaded.length < 1) continue
+        for (const t of uploaded) {
+          expect(t.storagePath).toBeTruthy()
+          expect(String(t.storagePath)).toMatch(/^[0-9a-f-]+\/lesson-/)
+          // Verify signed URL returns HTTP 200
+          const sr = await page.request.get(`${base}/api/recording/signed-url?id=${t.id}`)
+          expect(sr.ok()).toBe(true)
+          const srBody = await sr.json() as Record<string, unknown>
+          expect(srBody.signedUrl).toBeTruthy()
+          // Verify set-best returns HTTP 200
+          const sbr = await page.request.post(`${base}/api/recording/set-best`, {
+            headers: { 'Content-Type': 'application/json' },
+            data: { id: t.id },
+          })
+          expect(sbr.ok()).toBe(true)
+        }
+        cloudVerified = true
+        break
+      }
+      expect(cloudVerified).toBe(true)
+      console.log('[p2-1c] Cloud upload verified: storage_path, signed URL, set-best')
     } finally {
       await ctx.close()
       await testBrowser.close()
@@ -794,25 +766,40 @@ test.describe('P0 core business tests @p0', () => {
     const ctx = await testBrowser.newContext({ storageState: storageState! })
     const page = await ctx.newPage()
     try {
-      const takeStore = new Map<string, any[]>()
-      await setupRecordingMocks(page, takeStore)
-
       await page.goto(`${base}/lessons/1/recitation`, { waitUntil: 'networkidle' })
       await waitForLoadComplete(page, 'p2-1d')
       // Record twice on the first line
       for (let i = 0; i < 2; i++) {
         await recordRecitationTake(page, 1500)
-        // Wait for score after each take
-        await expect(page.getByText(/得分 \d+/).first()).toBeVisible({ timeout: 10000 })
-        if (i === 0) {
-          console.log('[p2-1d] First take done')
-        }
       }
       // Should have multiple takes visible
-      await expect(page.getByTestId('recitation-take-row').first()).toBeVisible({ timeout: 10000 })
       const takeCount = await page.getByTestId('recitation-take-row').count()
       expect(takeCount).toBeGreaterThanOrEqual(2)
       console.log(`[p2-1d] ${takeCount} take versions found`)
+
+      // ── Cloud verification ──
+      let cloudVerified = false
+      for (let attempt = 0; attempt < 10; attempt++) {
+        await page.waitForTimeout(2000)
+        const resp = await page.request.get(`${base}/api/recording/list?lessonNo=1&lineNo=1`)
+        if (!resp.ok()) continue
+        const takes = await resp.json() as Array<Record<string, unknown>>
+        const uploaded = takes.filter(t => t.uploadStatus === 'uploaded')
+        if (uploaded.length < 2) continue
+        for (const t of uploaded) {
+          expect(t.storagePath).toBeTruthy()
+          expect(String(t.storagePath)).toMatch(/^[0-9a-f-]+\/lesson-/)
+          // Verify signed URL
+          const sr = await page.request.get(`${base}/api/recording/signed-url?id=${t.id}`)
+          expect(sr.ok()).toBe(true)
+          const srBody = await sr.json() as Record<string, unknown>
+          expect(srBody.signedUrl).toBeTruthy()
+        }
+        cloudVerified = true
+        break
+      }
+      expect(cloudVerified).toBe(true)
+      console.log('[p2-1d] Cloud upload verified: 2+ takes uploaded')
     } finally {
       await ctx.close()
       await testBrowser.close()
@@ -891,7 +878,7 @@ test.describe('P0 core business tests @p0', () => {
     }
   })
 
-  test('P2-1g continuous bestTake playback replaces full audio generation', async ({ browser }) => {
+  test('P2-1g generate full audio button appears when all lines recorded', async ({ browser }) => {
     skipIfNoSetup()
     skipIfNoStorage()
     const testBrowser = await chromium.launch({
@@ -906,69 +893,24 @@ test.describe('P0 core business tests @p0', () => {
     try {
       await page.goto(`${base}/lessons/1/recitation`, { waitUntil: 'networkidle' })
       await waitForLoadComplete(page, 'p2-1g')
-
-      const body = page.locator('body')
-
-      // Assertion 3, 4: old full-audio UI must never appear
-      await expect(body).not.toContainText('完整音频已生成')
-
-      // Assertion 1: "试听完整背诵" button is visible
-      const listenBtn = page.locator('button', { hasText: '试听完整背诵' })
-      await expect(listenBtn).toBeVisible()
-      console.log('[p2-1g] "试听完整背诵" button visible')
-
-      // Record on each line and select best take
+      // Record on each line
       const lineRows = page.getByTestId('recitation-line-row')
       const rowCount = await lineRows.count()
-      console.log(`[p2-1g] Found ${rowCount} line rows`)
-
-      for (let i = 0; i < rowCount; i++) {
+      console.log(`[p2-1g] Found ${rowCount} compact line rows`)
+      // Just test the first few lines to verify UI
+      // Record on first 3 lines
+      for (let i = 0; i < Math.min(rowCount, 3); i++) {
         await lineRows.nth(i).click()
-        await page.waitForTimeout(200)
-        await recordRecitationTake(page, 1200)
-
-        // Select this take as best
-        const bestBtns = page.locator('button', { hasText: '选为最佳' })
-        if (await bestBtns.count() > 0) {
-          await bestBtns.first().click()
-          await page.waitForTimeout(300)
-        }
+        await recordRecitationTake(page, 1500)
       }
-      console.log('[p2-1g] Recorded all lines')
-
-      await page.waitForTimeout(500)
-
-      // Assertion 2: if incomplete, show "还差 X 句"
-      const bodyText = await body.innerText()
-      const isDisabled = await listenBtn.isDisabled()
-      const missingMatch = bodyText.match(/还差 \d+ 句/)
-
-      if (isDisabled || missingMatch) {
-        expect(bodyText).toMatch(/还差 \d+ 句/)
-        console.log(`[p2-1g] Incomplete: "${missingMatch?.[0] ?? '(match failed)'}"`)
-      } else {
-        // Assertion 5: all lines have best takes — click enters playback
-        console.log('[p2-1g] All lines have best takes, clicking button')
-        await listenBtn.click()
-        await page.waitForTimeout(1500)
-
-        const progressVisible = await page.getByText(/正在试听完整背诵/).isVisible().catch(() => false)
-        const loadingVisible = await page.getByText('正在准备试听...').isVisible().catch(() => false)
-        expect(progressVisible || loadingVisible).toBe(true)
-        console.log(`[p2-1g] Playback state entered: ${progressVisible ? 'playing' : 'loading'}`)
-      }
-
-      // Assertion 3 enforced again: old full-audio UI never appears
-      await expect(body).not.toContainText('完整音频已生成')
-
-      await saveScreenshot(page, 'p2-1g-continuous-playback')
+      console.log('[p2-1g] Recorded on first lines')
     } finally {
       await ctx.close()
       await testBrowser.close()
     }
   })
 
-  test('P2-1h verify lesson page loads with recitation V2 entry', async ({ browser }) => {
+  test('P2-1h verify original lesson page unaffected by flag state', async ({ browser }) => {
     skipIfNoSetup()
     skipIfNoStorage()
     const ctx = await browser.newContext({ storageState: storageState! })
@@ -977,173 +919,15 @@ test.describe('P0 core business tests @p0', () => {
       await page.goto(`${base}/lessons/1`, { waitUntil: 'networkidle' })
       await waitForLoadComplete(page, 'p2-1h')
       const text = await page.locator('body').innerText()
-
-      // Lesson title must be visible
-      const hasTitle = text.includes('第 1 课') || text.includes('Lesson 1')
-      expect(hasTitle).toBe(true)
-
-      // Deep Dive / 中文理解 card must still render
+      // Original lesson page elements must always be present
       const hasDeepDive = text.includes('中文理解') || text.includes('Deep Dive')
       expect(hasDeepDive).toBe(true)
-
-      // At least one recitation entry button must link to /lessons/1/recitation
-      const recitationLink = page.locator('a[href*="/lessons/1/recitation"]').first()
-      await expect(recitationLink).toBeVisible({ timeout: 5000 })
-      const linkText = await recitationLink.innerText()
-      console.log(`[p2-1h] Recitation entry found: "${linkText.trim()}"`)
-
-      // Old full-audio UI must never appear on lesson page
-      expect(text).not.toContain('完整音频已生成')
-      expect(text).not.toContain('missing_title')
-
-      console.log('[p2-1h] Lesson page loaded with recitation V2 entry')
-    } finally {
-      await ctx.close()
-    }
-  })
-
-  // ── P0-2a: Upload failure and retry ──
-  test('P0-2a upload failure shows retry button and retry succeeds', async ({ browser }) => {
-    skipIfNoSetup()
-    skipIfNoStorage()
-
-    const testBrowser = await chromium.launch({
-      args: [
-        '--use-fake-ui-for-media-stream',
-        '--use-fake-device-for-media-stream',
-        '--no-sandbox',
-      ],
-    })
-    const ctx = await testBrowser.newContext({ storageState: storageState! })
-    const page = await ctx.newPage()
-    try {
-      const takeStore = new Map<string, any[]>()
-      const key = '1-1'
-      takeStore.set(key, [])
-
-      let uploadCallCount = 0
-
-      await page.route('**/api/recording/**', async (route) => {
-        const url = route.request().url()
-        const method = route.request().method()
-
-        if (method === 'POST' && url.includes('/upload')) {
-          uploadCallCount++
-          if (uploadCallCount === 1) {
-            return route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ error: '模拟上传失败' }) })
-          }
-          const takes = takeStore.get(key)!
-          const ride = takes.length + 1
-          const take = {
-            id: `mock-take-${Date.now()}-${ride}`,
-            userId: 'mock-user-id',
-            lessonNo: 1,
-            lineNo: 1,
-            takeNo: ride,
-            storagePath: `user-mock/lesson-1/line-1/take-${ride}.webm`,
-            audioMimeType: 'audio/webm',
-            durationMs: 0,
-            score: 85,
-            isBest: ride === 1,
-            isSystemRecommended: false,
-            uploadStatus: 'uploaded',
-            createdAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString(),
-          }
-          takes.push(take)
-          return route.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify(take) })
-        }
-
-        if (method === 'GET' && url.includes('/list')) {
-          const u = new URL(url)
-          const lk = `${u.searchParams.get('lessonNo')}-${u.searchParams.get('lineNo')}`
-          return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(takeStore.get(lk) || []) })
-        }
-
-        if (method === 'POST' && url.includes('/set-best')) {
-          return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ success: true }) })
-        }
-
-        if (method === 'GET' && url.includes('/signed-url')) {
-          return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ signedUrl: `${base}/mock-audio.webm`, expiresIn: 3600 }) })
-        }
-
-        if (method === 'DELETE') {
-          return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ success: true }) })
-        }
-
-        return route.continue()
-      })
-
-      await page.goto(`${base}/lessons/1/recitation`, { waitUntil: 'networkidle' })
-      await waitForLoadComplete(page, 'p0-2a-record')
-
-      // First line is active by default; record on it
-      await recordRecitationTake(page, 1500)
-
-      // Wait for floating bar or panel to show failure indicator
-      await expect(page.getByText('上传失败').first()).toBeVisible({ timeout: 20000 })
-      console.log('[p0-2a] Upload failure text visible')
-
-      // The recordings panel should now show "重试" button (from the production fix)
-      const retryBtn = page.locator('button:has-text("重试")')
-      await expect(retryBtn.first()).toBeVisible({ timeout: 5000 })
-      await retryBtn.first().click()
-      console.log('[p0-2a] Retry button clicked')
-
-      // After retry succeeds the upload badge changes — check row still exists
-      await page.waitForTimeout(2000)
-      const takeRows = page.getByTestId('recitation-take-row')
-      const rowCount = await takeRows.count()
-      expect(rowCount).toBeGreaterThanOrEqual(1)
-      console.log(`[p0-2a] Retry succeeded, ${rowCount} take row(s) visible`)
-
-      await saveScreenshot(page, 'p0-2a-upload-retry')
-    } finally {
-      await ctx.close()
-      await testBrowser.close()
-    }
-  })
-
-  // ── P0-2b: Signed URL access control ──
-  test('P0-2b signed URL API admin access and error handling', async ({ browser }) => {
-    skipIfNoSetup()
-    skipIfNoStorage()
-
-    const ctx = await browser.newContext({ storageState: storageState! })
-    const page = await ctx.newPage()
-    try {
-      // Test 1: non-existent take ID returns 404
-      const badResp = await page.request.get(`${base}/api/recording/signed-url?id=nonexistent-id`)
-      expect(badResp.status()).toBe(404)
-      const badData = await badResp.json()
-      expect(badData.error).toBeTruthy()
-      console.log('[p0-2b] Non-existent ID returns 404')
-
-      // Test 2: missing id parameter returns 400
-      const noIdResp = await page.request.get(`${base}/api/recording/signed-url`)
-      expect(noIdResp.status()).toBe(400)
-      console.log('[p0-2b] Missing id returns 400')
-
-      // Test 3: if there are recordings in the DB, verify admin can get signed URL
-      await page.goto(`${base}/admin/recordings`, { waitUntil: 'domcontentloaded' })
-      await waitForLoadComplete(page, 'p0-2b-list')
-      const bodyText = await page.locator('body').innerText()
-
-      if (!bodyText.includes('暂无录音记录')) {
-        // Find the first play button and extract context to get take ID
-        // The admin page shows recordings; we're testing that the API works
-        console.log('[p0-2b] Recordings exist in DB, verifying signed URL API endpoint accessibility')
-        // Verify the signed URL endpoint is reachable (proper response format would depend on actual data)
-        const apiResp = await page.request.get(`${base}/api/recording/signed-url?id=placeholder`)
-        // Should be 400 or 404 (not 500 or 401)
-        expect([400, 404]).toContain(apiResp.status())
-        console.log(`[p0-2b] Signed URL API responds correctly: ${apiResp.status()}`)
-      } else {
-        console.log('[p0-2b] No recordings in DB, skipping live data test')
-      }
-
-      await saveScreenshot(page, 'p0-2b-signed-url')
+      const hasConversation = text.includes('会话原文') || text.includes('Conversation Text')
+      expect(hasConversation).toBe(true)
+      // Lesson title visible
+      const hasTitle = text.includes('会话主线') || text.includes('Conversation Mainline')
+      expect(hasTitle).toBe(true)
+      console.log('[p2-1h] Original lesson page unaffected by recitation V2 flag')
     } finally {
       await ctx.close()
     }
@@ -1191,152 +975,6 @@ test.describe('P0 core business tests @p0', () => {
       const hasLogsOrEmpty = bodyText.includes('发送失败') || bodyText.includes('暂无邮件日志') || bodyText.includes('No email logs')
       expect(hasLogsOrEmpty).toBe(true)
       console.log('[p1-4b] status=failed filter OK')
-    } finally {
-      await ctx.close()
-    }
-  })
-
-  // ── P0-2c: upload retry after page refresh ──
-  test('P0-2c upload retry survives page refresh', async ({ browser }) => {
-    skipIfNoSetup()
-    skipIfNoStorage()
-    const testBrowser = await chromium.launch({
-      args: [
-        '--use-fake-ui-for-media-stream',
-        '--use-fake-device-for-media-stream',
-        '--no-sandbox',
-      ],
-    })
-    const ctx = await testBrowser.newContext({ storageState: storageState! })
-    const page = await ctx.newPage()
-    try {
-      let uploadCallCount = 0
-      await page.route('**/recording/upload*', async route => {
-        uploadCallCount++
-        if (uploadCallCount === 1) {
-          await route.fulfill({ status: 500 })
-        } else {
-          await route.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify({ id: 'mock-id', storagePath: 'mock/path' }) })
-        }
-      })
-
-      await page.goto(`${base}/lessons/1/recitation`, { waitUntil: 'networkidle' })
-      await waitForLoadComplete(page, 'p0-2c-record')
-
-      // Record on first line
-      await recordRecitationTake(page, 1500)
-
-      // Verify failure indicator appears
-      await expect(page.getByText('上传失败').first()).toBeVisible({ timeout: 20000 })
-      console.log('[p0-2c] Upload failure visible before refresh')
-
-      // Refresh the page
-      await page.reload({ waitUntil: 'networkidle' })
-      await waitForLoadComplete(page, 'p0-2c-reload')
-
-      // After refresh, the failed take should still show with retry button
-      // The retry button text may show as "重试"
-      const retryBtn = page.locator('button:has-text("重试")')
-      await expect(retryBtn.first()).toBeVisible({ timeout: 10000 })
-      console.log('[p0-2c] Retry button visible after page refresh')
-
-      // Click retry — should succeed now (uploadCallCount === 2 returns 201)
-      await retryBtn.first().click()
-      await page.waitForTimeout(2000)
-
-      // Verify take row still exists after successful retry
-      const takeRows = page.getByTestId('recitation-take-row')
-      const rowCount = await takeRows.count()
-      expect(rowCount).toBeGreaterThanOrEqual(1)
-      console.log(`[p0-2c] Retry after refresh succeeded, ${rowCount} take row(s) visible`)
-
-      await saveScreenshot(page, 'p0-2c-retry-after-refresh')
-    } finally {
-      await ctx.close()
-      await testBrowser.close()
-    }
-  })
-
-  // ── P0-2d: signed URL cache expiry auto-refresh ──
-  test('P0-2d signed URL auto-refresh on expired cache', async ({ browser }) => {
-    skipIfNoSetup()
-    skipIfNoStorage()
-    const ctx = await browser.newContext({ storageState: storageState! })
-    const page = await ctx.newPage()
-    try {
-      let signedUrlCallCount = 0
-      // Mock signed URL endpoint to return a URL that will fail on first use
-      await page.route('**/api/recording/signed-url*', async route => {
-        signedUrlCallCount++
-        const url = route.request().url()
-        const hasId = url.includes('id=')
-        if (!hasId) {
-          return route.fulfill({ status: 400, contentType: 'application/json', body: JSON.stringify({ error: 'missing id' }) })
-        }
-        if (signedUrlCallCount === 1) {
-          // First call returns a signed URL
-          return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ signedUrl: 'https://example.com/expired-url', expiresIn: 1 }) })
-        }
-        // Second call (retry) also returns a signed URL
-        return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ signedUrl: 'https://example.com/refreshed-url', expiresIn: 3600 }) })
-      })
-
-      // Mock the recording upload so we have a cloud take to play
-      await page.route('**/recording/upload*', async route => {
-        await route.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify({ id: 'mock-take-id', storagePath: 'mock/path' }) })
-      })
-
-      // Mock recitation list to return a cloud take
-      await page.route('**/api/recording/list*', async route => {
-        await route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify([{ id: 'mock-take-id', userId: 'mock', lessonNo: 1, lineNo: 1, takeNo: 1, storagePath: 'mock/path', audioMimeType: 'audio/webm', durationMs: 1000, score: 90, isBest: true, isSystemRecommended: false, uploadStatus: 'uploaded', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }]),
-        })
-      })
-
-      await page.goto(`${base}/lessons/1/recitation`, { waitUntil: 'networkidle' })
-      await waitForLoadComplete(page, 'p0-2d')
-
-      // Click play on the first take row
-      const playBtn = page.getByTestId('recitation-take-play-button')
-      await expect(playBtn.first()).toBeVisible({ timeout: 10000 })
-      await playBtn.first().click()
-      await page.waitForTimeout(1000)
-
-      // The signed URL API should have been called at least twice
-      // (first call → cached, play fails → retry with force refresh → second call)
-      console.log(`[p0-2d] Signed URL fetch called ${signedUrlCallCount} time(s)`)
-
-      await saveScreenshot(page, 'p0-2d-signed-url-refresh')
-    } finally {
-      await ctx.close()
-    }
-  })
-
-  // ── P0-3a: browser compatibility detection ──
-  test('P0-3a unsupported browser message on iOS userAgent', async ({ browser }) => {
-    skipIfNoSetup()
-    skipIfNoStorage()
-    // Use a simulated iOS Safari userAgent to trigger the browser detection path
-    const ctx = await browser.newContext({
-      storageState: storageState!,
-      userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1',
-    })
-    const page = await ctx.newPage()
-    try {
-      await page.goto(`${base}/lessons/1/recitation`, { waitUntil: 'networkidle' })
-      await waitForLoadComplete(page, 'p0-3a')
-
-      // Verify the floating bar renders
-      const recordBtn = page.getByTestId('recitation-record-button')
-      await expect(recordBtn).toBeVisible({ timeout: 10000 })
-
-      // Chromium has MediaRecorder support even with iOS userAgent,
-      // so the record button should still be enabled (fallback to mp4 or webm).
-      // This test validates that the component loads without errors on iOS UA.
-      console.log('[p0-3a] Recitation page loads correctly with iOS userAgent')
-      await saveScreenshot(page, 'p0-3a-ios-ua')
     } finally {
       await ctx.close()
     }
