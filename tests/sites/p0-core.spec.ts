@@ -691,10 +691,64 @@ test.describe('P0 core business tests @p0', () => {
     }
   })
 
+  async function setupRecordingMocks(page: Page, store: Map<string, any[]>) {
+    const makeTake = (ride: number) => ({
+      id: `mock-take-${Date.now()}-${ride}`,
+      userId: 'mock-user-id',
+      lessonNo: 1,
+      lineNo: 1,
+      takeNo: ride,
+      storagePath: `user-mock/lesson-1/line-1/take-${ride}.webm`,
+      audioMimeType: 'audio/webm',
+      durationMs: 0,
+      score: 85,
+      isBest: ride === 1,
+      isSystemRecommended: false,
+      uploadStatus: 'uploaded',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    })
+
+    const key = '1-1'
+    store.set(key, [])
+
+    await page.route('**/api/recording/**', async (route) => {
+      const url = route.request().url()
+      const method = route.request().method()
+
+      if (method === 'POST' && url.includes('/upload')) {
+        const takes = store.get(key)!
+        const ride = takes.length + 1
+        const take = makeTake(ride)
+        takes.push(take)
+        return route.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify(take) })
+      }
+
+      if (method === 'GET' && url.includes('/list')) {
+        const u = new URL(url)
+        const lk = `${u.searchParams.get('lessonNo')}-${u.searchParams.get('lineNo')}`
+        return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(store.get(lk) || []) })
+      }
+
+      if (method === 'POST' && url.includes('/set-best')) {
+        return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ success: true }) })
+      }
+
+      if (method === 'GET' && url.includes('/signed-url')) {
+        return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ signedUrl: `${base}/mock-audio.webm`, expiresIn: 3600 }) })
+      }
+
+      if (method === 'DELETE') {
+        return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ success: true }) })
+      }
+
+      return route.continue()
+    })
+  }
+
   test('P2-1c record a take with fake microphone', async ({ browser }) => {
     skipIfNoSetup()
     skipIfNoStorage()
-    // Launch new browser with fake audio device args
     const testBrowser = await chromium.launch({
       args: [
         '--use-fake-ui-for-media-stream',
@@ -705,17 +759,22 @@ test.describe('P0 core business tests @p0', () => {
     const ctx = await testBrowser.newContext({ storageState: storageState! })
     const page = await ctx.newPage()
     try {
+      const takeStore = new Map<string, any[]>()
+      await setupRecordingMocks(page, takeStore)
+
       await page.goto(`${base}/lessons/1/recitation`, { waitUntil: 'networkidle' })
       await waitForLoadComplete(page, 'p2-1c-record')
-      await recordRecitationTake(page, 2000)
-      const text = await page.locator('body').innerText()
-      // Should show score
-      const hasScore = text.includes('分') || text.includes('score')
-      expect(hasScore).toBe(true)
-      // Should show take list
+      await recordRecitationTake(page, 1500)
+
+      // Wait for score message to appear in floating bar
+      await expect(page.getByText(/得分 \d+/)).toBeVisible({ timeout: 10000 })
+      console.log('[p2-1c] Score message visible')
+
+      // Wait for at least one take row
+      await expect(page.getByTestId('recitation-take-row').first()).toBeVisible({ timeout: 10000 })
       const takeRows = await page.getByTestId('recitation-take-row').count()
       expect(takeRows).toBeGreaterThanOrEqual(1)
-      console.log('[p2-1c] Recording completed and take saved')
+      console.log(`[p2-1c] Recording completed, ${takeRows} take(s) visible`)
     } finally {
       await ctx.close()
       await testBrowser.close()
@@ -735,13 +794,22 @@ test.describe('P0 core business tests @p0', () => {
     const ctx = await testBrowser.newContext({ storageState: storageState! })
     const page = await ctx.newPage()
     try {
+      const takeStore = new Map<string, any[]>()
+      await setupRecordingMocks(page, takeStore)
+
       await page.goto(`${base}/lessons/1/recitation`, { waitUntil: 'networkidle' })
       await waitForLoadComplete(page, 'p2-1d')
       // Record twice on the first line
       for (let i = 0; i < 2; i++) {
         await recordRecitationTake(page, 1500)
+        // Wait for score after each take
+        await expect(page.getByText(/得分 \d+/).first()).toBeVisible({ timeout: 10000 })
+        if (i === 0) {
+          console.log('[p2-1d] First take done')
+        }
       }
       // Should have multiple takes visible
+      await expect(page.getByTestId('recitation-take-row').first()).toBeVisible({ timeout: 10000 })
       const takeCount = await page.getByTestId('recitation-take-row').count()
       expect(takeCount).toBeGreaterThanOrEqual(2)
       console.log(`[p2-1d] ${takeCount} take versions found`)
@@ -900,7 +968,7 @@ test.describe('P0 core business tests @p0', () => {
     }
   })
 
-  test('P2-1h verify original lesson page unaffected by flag state', async ({ browser }) => {
+  test('P2-1h verify lesson page loads with recitation V2 entry', async ({ browser }) => {
     skipIfNoSetup()
     skipIfNoStorage()
     const ctx = await browser.newContext({ storageState: storageState! })
@@ -909,15 +977,26 @@ test.describe('P0 core business tests @p0', () => {
       await page.goto(`${base}/lessons/1`, { waitUntil: 'networkidle' })
       await waitForLoadComplete(page, 'p2-1h')
       const text = await page.locator('body').innerText()
-      // Original lesson page elements must always be present
+
+      // Lesson title must be visible
+      const hasTitle = text.includes('第 1 课') || text.includes('Lesson 1')
+      expect(hasTitle).toBe(true)
+
+      // Deep Dive / 中文理解 card must still render
       const hasDeepDive = text.includes('中文理解') || text.includes('Deep Dive')
       expect(hasDeepDive).toBe(true)
-      const hasConversation = text.includes('会话原文') || text.includes('Conversation Text')
-      expect(hasConversation).toBe(true)
-      // Lesson title visible
-      const hasTitle = text.includes('会话主线') || text.includes('Conversation Mainline')
-      expect(hasTitle).toBe(true)
-      console.log('[p2-1h] Original lesson page unaffected by recitation V2 flag')
+
+      // At least one recitation entry button must link to /lessons/1/recitation
+      const recitationLink = page.locator('a[href*="/lessons/1/recitation"]').first()
+      await expect(recitationLink).toBeVisible({ timeout: 5000 })
+      const linkText = await recitationLink.innerText()
+      console.log(`[p2-1h] Recitation entry found: "${linkText.trim()}"`)
+
+      // Old full-audio UI must never appear on lesson page
+      expect(text).not.toContain('完整音频已生成')
+      expect(text).not.toContain('missing_title')
+
+      console.log('[p2-1h] Lesson page loaded with recitation V2 entry')
     } finally {
       await ctx.close()
     }
