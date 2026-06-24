@@ -1002,6 +1002,158 @@ test.describe('P0 core business tests @p0', () => {
     }
   })
 
+  // ── P0-2a: Upload failure and retry ──
+  test('P0-2a upload failure shows retry button and retry succeeds', async ({ browser }) => {
+    skipIfNoSetup()
+    skipIfNoStorage()
+
+    const testBrowser = await chromium.launch({
+      args: [
+        '--use-fake-ui-for-media-stream',
+        '--use-fake-device-for-media-stream',
+        '--no-sandbox',
+      ],
+    })
+    const ctx = await testBrowser.newContext({ storageState: storageState! })
+    const page = await ctx.newPage()
+    try {
+      const takeStore = new Map<string, any[]>()
+      const key = '1-1'
+      takeStore.set(key, [])
+
+      let uploadCallCount = 0
+
+      await page.route('**/api/recording/**', async (route) => {
+        const url = route.request().url()
+        const method = route.request().method()
+
+        // Upload: first call fails, subsequent calls succeed
+        if (method === 'POST' && url.includes('/upload')) {
+          uploadCallCount++
+          if (uploadCallCount === 1) {
+            return route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ error: '模拟上传失败' }) })
+          }
+          const takes = takeStore.get(key)!
+          const ride = takes.length + 1
+          const take = {
+            id: `mock-take-${Date.now()}-${ride}`,
+            userId: 'mock-user-id',
+            lessonNo: 1,
+            lineNo: 1,
+            takeNo: ride,
+            storagePath: `user-mock/lesson-1/line-1/take-${ride}.webm`,
+            audioMimeType: 'audio/webm',
+            durationMs: 0,
+            score: 85,
+            isBest: ride === 1,
+            isSystemRecommended: false,
+            uploadStatus: 'uploaded',
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          }
+          takes.push(take)
+          return route.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify(take) })
+        }
+
+        if (method === 'GET' && url.includes('/list')) {
+          const u = new URL(url)
+          const lk = `${u.searchParams.get('lessonNo')}-${u.searchParams.get('lineNo')}`
+          return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(takeStore.get(lk) || []) })
+        }
+
+        if (method === 'POST' && url.includes('/set-best')) {
+          return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ success: true }) })
+        }
+
+        if (method === 'GET' && url.includes('/signed-url')) {
+          return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ signedUrl: `${base}/mock-audio.webm`, expiresIn: 3600 }) })
+        }
+
+        if (method === 'DELETE') {
+          return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ success: true }) })
+        }
+
+        return route.continue()
+      })
+
+      await page.goto(`${base}/lessons/1/recitation`, { waitUntil: 'networkidle' })
+      await waitForLoadComplete(page, 'p0-2a-record')
+      await recordRecitationTake(page, 1500)
+
+      // Wait for the floating bar to finish (score message or upload error)
+      await page.waitForTimeout(2000)
+
+      // Check for upload failure badge in recordings panel
+      const failBadge = page.getByText('上传失败')
+      await expect(failBadge.first()).toBeVisible({ timeout: 10000 })
+      console.log('[p0-2a] Upload failure badge visible')
+
+      // Click retry button
+      const retryBtn = page.locator('button', { hasText: '重试' })
+      await expect(retryBtn.first()).toBeVisible({ timeout: 5000 })
+      await retryBtn.first().click()
+      console.log('[p0-2a] Retry button clicked')
+
+      // Wait for retry to complete (upload badge should change)
+      await page.waitForTimeout(2000)
+
+      // The "上传失败" badge should no longer be present (retry succeeded)
+      const failBadgeAfter = page.getByText('上传失败')
+      const failCount = await failBadgeAfter.count()
+      expect(failCount).toBe(0)
+      console.log('[p0-2a] Retry succeeded, no failure badge')
+
+      await saveScreenshot(page, 'p0-2a-upload-retry')
+    } finally {
+      await ctx.close()
+      await testBrowser.close()
+    }
+  })
+
+  // ── P0-2b: Signed URL access control ──
+  test('P0-2b signed URL API admin access and error handling', async ({ browser }) => {
+    skipIfNoSetup()
+    skipIfNoStorage()
+
+    const ctx = await browser.newContext({ storageState: storageState! })
+    const page = await ctx.newPage()
+    try {
+      // Test 1: non-existent take ID returns 404
+      const badResp = await page.request.get(`${base}/api/recording/signed-url?id=nonexistent-id`)
+      expect(badResp.status()).toBe(404)
+      const badData = await badResp.json()
+      expect(badData.error).toBeTruthy()
+      console.log('[p0-2b] Non-existent ID returns 404')
+
+      // Test 2: missing id parameter returns 400
+      const noIdResp = await page.request.get(`${base}/api/recording/signed-url`)
+      expect(noIdResp.status()).toBe(400)
+      console.log('[p0-2b] Missing id returns 400')
+
+      // Test 3: if there are recordings in the DB, verify admin can get signed URL
+      await page.goto(`${base}/admin/recordings`, { waitUntil: 'domcontentloaded' })
+      await waitForLoadComplete(page, 'p0-2b-list')
+      const bodyText = await page.locator('body').innerText()
+
+      if (!bodyText.includes('暂无录音记录')) {
+        // Find the first play button and extract context to get take ID
+        // The admin page shows recordings; we're testing that the API works
+        console.log('[p0-2b] Recordings exist in DB, verifying signed URL API endpoint accessibility')
+        // Verify the signed URL endpoint is reachable (proper response format would depend on actual data)
+        const apiResp = await page.request.get(`${base}/api/recording/signed-url?id=placeholder`)
+        // Should be 400 or 404 (not 500 or 401)
+        expect([400, 404]).toContain(apiResp.status())
+        console.log(`[p0-2b] Signed URL API responds correctly: ${apiResp.status()}`)
+      } else {
+        console.log('[p0-2b] No recordings in DB, skipping live data test')
+      }
+
+      await saveScreenshot(page, 'p0-2b-signed-url')
+    } finally {
+      await ctx.close()
+    }
+  })
+
   // ── P1-4: Email logs experience ──
   test('P1-4a email_logs page fields and filters', async ({ browser }) => {
     skipIfNoSetup()

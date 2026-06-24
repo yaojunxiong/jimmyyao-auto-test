@@ -270,6 +270,38 @@ test.describe('Admin authenticated tests @admin-auth', () => {
     }
   })
 
+  test('/admin/recordings renders', async ({ browser }) => {
+    skipIfNoSetup()
+    skipIfNoStorage()
+
+    const ctx = await browser.newContext({ storageState: storageState! })
+    try {
+      const page = await visit(ctx, '/admin/recordings')
+      await waitForLoadComplete(page, 'auth-admin-recordings')
+      await saveScreenshot(page, 'auth-admin-recordings')
+
+      await expect(page.locator('body')).toContainText(/录音管理|Recording Takes/i)
+      console.log('✓ Recordings page: content visible')
+    } finally {
+      await ctx.close()
+    }
+  })
+
+  test('/admin/recordings with filter params renders', async ({ browser }) => {
+    skipIfNoSetup()
+    skipIfNoStorage()
+
+    const ctx = await browser.newContext({ storageState: storageState! })
+    try {
+      const page = await visit(ctx, '/admin/recordings?lessonNo=1&bestOnly=1&uploadStatus=uploaded')
+      await waitForLoadComplete(page, 'auth-admin-recordings-filtered')
+      await expect(page.locator('body')).toContainText(/录音管理|Recording Takes/i)
+      console.log('✓ Recordings page with filter params: no crash')
+    } finally {
+      await ctx.close()
+    }
+  })
+
   // ── 404 checks (separate test for each admin page) ──
   // Uses response status + visible DOM checks (not body.innerText) to avoid
   // false positives from Next.js RSC payload containing "404" strings.
@@ -282,6 +314,7 @@ test.describe('Admin authenticated tests @admin-auth', () => {
     '/admin/workflows',
     '/admin/visitor-flow-rules',
     '/admin/email-logs',
+    '/admin/recordings',
   ]
 
   for (const path of allAdminPaths) {
