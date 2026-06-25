@@ -712,10 +712,11 @@ test.describe('P0 core business tests @p0', () => {
       // Should show score
       const hasScore = text.includes('分') || text.includes('score')
       expect(hasScore).toBe(true)
-      // Should show take list
+      // Should show take list (wait for UI to render local take)
+      await expect(page.getByTestId('recitation-take-row').first()).toBeVisible({ timeout: 15000 })
       const takeRows = await page.getByTestId('recitation-take-row').count()
       expect(takeRows).toBeGreaterThanOrEqual(1)
-      console.log('[p2-1c] Recording completed and take saved')
+      console.log(`[p2-1c] Recording completed, ${takeRows} take(s) visible`)
 
       // ── Cloud verification ──
       // Poll list API until upload completes
@@ -747,6 +748,14 @@ test.describe('P0 core business tests @p0', () => {
       }
       expect(cloudVerified).toBe(true)
       console.log('[p2-1c] Cloud upload verified: storage_path, signed URL, set-best')
+
+      // ── Refresh page and verify data persists ──
+      await page.reload({ waitUntil: 'networkidle' })
+      await waitForLoadComplete(page, 'p2-1c-refresh')
+      await expect(page.getByTestId('recitation-take-row').first()).toBeVisible({ timeout: 15000 })
+      const refreshRows = await page.getByTestId('recitation-take-row').count()
+      expect(refreshRows).toBeGreaterThanOrEqual(1)
+      console.log('[p2-1c] Data persists after page refresh')
     } finally {
       await ctx.close()
       await testBrowser.close()
@@ -772,7 +781,8 @@ test.describe('P0 core business tests @p0', () => {
       for (let i = 0; i < 2; i++) {
         await recordRecitationTake(page, 1500)
       }
-      // Should have multiple takes visible
+      // Should have multiple takes visible (wait for UI to render)
+      await expect(page.getByTestId('recitation-take-row').first()).toBeVisible({ timeout: 15000 })
       const takeCount = await page.getByTestId('recitation-take-row').count()
       expect(takeCount).toBeGreaterThanOrEqual(2)
       console.log(`[p2-1d] ${takeCount} take versions found`)
@@ -800,6 +810,14 @@ test.describe('P0 core business tests @p0', () => {
       }
       expect(cloudVerified).toBe(true)
       console.log('[p2-1d] Cloud upload verified: 2+ takes uploaded')
+
+      // ── Refresh page and verify data persists ──
+      await page.reload({ waitUntil: 'networkidle' })
+      await waitForLoadComplete(page, 'p2-1d-refresh')
+      await expect(page.getByTestId('recitation-take-row').first()).toBeVisible({ timeout: 15000 })
+      const refreshCount = await page.getByTestId('recitation-take-row').count()
+      expect(refreshCount).toBeGreaterThanOrEqual(2)
+      console.log('[p2-1d] Data persists after page refresh')
     } finally {
       await ctx.close()
       await testBrowser.close()
