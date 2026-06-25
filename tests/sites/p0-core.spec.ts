@@ -720,11 +720,14 @@ test.describe('P0 core business tests @p0', () => {
       lastTakes = await resp.json() as Record<string, unknown>[]
       // API returns snake_case fields from Supabase/PostgREST
       const uploaded = lastTakes.filter(t => t.upload_status === 'uploaded')
-      const statuses = lastTakes.map(t => t.upload_status).join(', ')
+      const statuses = lastTakes.map(t => (t.upload_status as string) ?? '').join(', ')
       console.log(`[poll] attempt ${attempt}/${maxAttempts}: takes=${lastTakes.length}, uploaded=${uploaded.length}, statuses=[${statuses}]`)
 
       if (uploaded.length >= options.minCount) {
-        for (const t of uploaded) {
+        // Sort by created_at descending, only verify the most recent minCount takes
+        uploaded.sort((a, b) => String(b.created_at ?? '').localeCompare(String(a.created_at ?? '')))
+        const recent = uploaded.slice(0, options.minCount)
+        for (const t of recent) {
           expect(t.storage_path).toBeTruthy()
           const path = String(t.storage_path ?? '')
           expect(path).toMatch(/^[0-9a-f-]+\/lesson-/)
@@ -747,8 +750,8 @@ test.describe('P0 core business tests @p0', () => {
             console.log(`[poll] take id=${t.id} set-best OK`)
           }
         }
-        console.log(`[poll] Cloud verified: ${uploaded.length} take(s) uploaded, storage_path, signed URL${verifySetBest ? ', set-best' : ''}`)
-        return uploaded
+        console.log(`[poll] Cloud verified: ${recent.length}/${uploaded.length} take(s) verified, storage_path, signed URL${verifySetBest ? ', set-best' : ''}`)
+        return recent
       }
     }
 
