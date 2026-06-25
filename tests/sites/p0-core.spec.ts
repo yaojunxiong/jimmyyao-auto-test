@@ -578,6 +578,23 @@ test.describe('P0 core business tests @p0', () => {
     }
   })
 
+  test('P0-6j API: normal user cannot query recordings by userId', async ({ browser }) => {
+    test.skip(!hasNormalUser, 'TEST_USER_EMAIL/TEST_USER_PASSWORD not configured')
+    const ctx = await loginAsNormalUser(browser)
+    test.skip(!ctx, 'normal user login failed, skipping')
+    const page = await ctx.newPage()
+    try {
+      const otherUserId = '00000000-0000-0000-0000-000000000000'
+      const apiRes = await page.request.get(`${base}/api/recording/list?lessonNo=1&lineNo=1&userId=${otherUserId}`)
+      expect(apiRes.status()).toBe(403)
+      const bodyText = await apiRes.text()
+      expect(bodyText).toMatch(/无权|forbidden|unauthorized/i)
+      console.log(`[p0-6j] Normal user explicit userId recording list blocked: status=${apiRes.status()}`)
+    } finally {
+      await ctx.close()
+    }
+  })
+
   // ── P1-2: Workflow / Email status label consistency ──
   test('P1-2a workflow status labels are correct', async ({ browser }) => {
     skipIfNoSetup()
@@ -838,6 +855,45 @@ test.describe('P0 core business tests @p0', () => {
         createdAfter: new Date().toISOString(),
       })
       console.log(`[p2-1c] Cloud upload verified: ${uploaded.length} take(s)`)
+
+      // ── Cross-device check: fresh context has no IndexedDB, so the row must come from cloud ──
+      const uploadedTakeId = String(uploaded[0]?.id ?? '')
+      expect(uploadedTakeId).toBeTruthy()
+      const freshCtx = await testBrowser.newContext({ storageState: storageState! })
+      try {
+        const freshPage = await freshCtx.newPage()
+        const isLineOneListResponse = (urlText: string) => {
+          try {
+            const url = new URL(urlText)
+            return url.pathname.endsWith('/api/recording/list') && url.searchParams.get('lessonNo') === '1' && url.searchParams.get('lineNo') === '1'
+          } catch {
+            return false
+          }
+        }
+        const listPromise = freshPage.waitForResponse(
+          resp => isLineOneListResponse(resp.url()),
+          { timeout: 15000 },
+        ).catch(() => null)
+        await freshPage.goto(`${base}/lessons/1/recitation`, { waitUntil: 'networkidle' })
+        await waitForLoadComplete(freshPage, 'p2-1c-cloud-refresh')
+        const listResp = await listPromise
+        let listRows: Record<string, unknown>[] = []
+        if (listResp) {
+          listRows = await listResp.json().catch(() => []) as Record<string, unknown>[]
+          console.log(`[p2-1c] Fresh context /api/recording/list params: lessonNo=1 lineNo=1 returned ${listRows.length} take(s)`)
+        } else {
+          const directResp = await freshPage.request.get(`${base}/api/recording/list?lessonNo=1&lineNo=1`)
+          listRows = directResp.ok() ? await directResp.json() as Record<string, unknown>[] : []
+          console.log(`[p2-1c] Fresh context direct list status=${directResp.status()} params: lessonNo=1 lineNo=1 returned ${listRows.length} take(s)`)
+        }
+        const containsUploaded = listRows.some(t => t.id === uploadedTakeId)
+        console.log(`[p2-1c] Fresh context list contains uploaded id=${uploadedTakeId}: ${containsUploaded}`)
+        expect(containsUploaded).toBe(true)
+        await expect(freshPage.locator(`[data-testid="recitation-take-row"][data-take-id="${uploadedTakeId}"]`).first()).toBeVisible({ timeout: 15000 })
+        console.log('[p2-1c] Fresh context cloud take row visible')
+      } finally {
+        await freshCtx.close()
+      }
 
       // ── Persistence check: reload and verify take row still visible ──
       await page.reload({ waitUntil: 'networkidle' })
