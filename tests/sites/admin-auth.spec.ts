@@ -348,7 +348,7 @@ test.describe('Admin authenticated tests @admin-auth', () => {
         const page = await visit(ctx, path)
         await waitForLoadComplete(page, `no404-${path}`)
         const bodyText = await page.locator('body').innerText()
-        expect(/404/.test(bodyText)).toBe(false)
+        // Do not fail on incidental "404" inside IDs/counts; only catch real Next.js not-found pages.
         expect(/This page could not be found/i.test(bodyText)).toBe(false)
         expect(/page not found/i.test(bodyText)).toBe(false)
         console.log(`✓ ${path}: no 404 detected`)

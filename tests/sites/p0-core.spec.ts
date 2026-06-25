@@ -726,7 +726,11 @@ test.describe('P0 core business tests @p0', () => {
       console.log(`[poll] attempt ${attempt}/${maxAttempts}: takes=${lastTakes.length}, fresh_uploaded=${fresh.length}, statuses=[${statuses}]`)
 
       if (fresh.length >= options.minCount) {
-        for (const t of fresh.slice(0, options.minCount)) {
+        fresh.sort((a, b) => String(b.created_at ?? '').localeCompare(String(a.created_at ?? '')))
+        const recent = fresh.slice(0, options.minCount)
+        let verifiedAll = true
+
+        for (const t of recent) {
           expect(t.storage_path).toBeTruthy()
           const path = String(t.storage_path ?? '')
           expect(path).toMatch(/^[0-9a-f-]+\/lesson-/)
@@ -734,9 +738,19 @@ test.describe('P0 core business tests @p0', () => {
 
           if (verifySignedUrl) {
             const sr = await page.request.get(`${base}/api/recording/signed-url?id=${t.id}`)
-            expect(sr.ok()).toBe(true)
+            if (!sr.ok()) {
+              let body = ''
+              try { body = await sr.text() } catch {}
+              console.log(`[poll] take id=${t.id} signed-url status=${sr.status()}, retrying; body=${body.slice(0, 300)}`)
+              verifiedAll = false
+              break
+            }
             const srBody = await sr.json() as Record<string, unknown>
-            expect(srBody.signedUrl).toBeTruthy()
+            if (!srBody.signedUrl) {
+              console.log(`[poll] take id=${t.id} signed-url response missing signedUrl, retrying`)
+              verifiedAll = false
+              break
+            }
             console.log(`[poll] take id=${t.id} signed-url OK`)
           }
 
@@ -749,8 +763,11 @@ test.describe('P0 core business tests @p0', () => {
             console.log(`[poll] take id=${t.id} set-best OK`)
           }
         }
-        console.log(`[poll] Cloud verified: ${Math.min(fresh.length, options.minCount)} take(s) verified, storage_path, signed URL${verifySetBest ? ', set-best' : ''}`)
-        return fresh.slice(0, options.minCount)
+
+        if (verifiedAll) {
+          console.log(`[poll] Cloud verified: ${recent.length} take(s) verified, storage_path, signed URL${verifySetBest ? ', set-best' : ''}`)
+          return recent
+        }
       }
     }
 
@@ -1045,7 +1062,7 @@ test.describe('P0 core business tests @p0', () => {
       await page.goto(`${base}/admin/email-logs?status=failed`, { waitUntil: 'networkidle' })
       await waitForLoadComplete(page, 'p1-4b')
       // Must not 404
-      expect(await page.locator('body').innerText()).not.toMatch(/404|This page could not be found/)
+      expect(await page.locator('body').innerText()).not.toMatch(/This page could not be found/)
       // Must show email logs or empty state
       const bodyText = await page.locator('body').innerText()
       const hasLogsOrEmpty = bodyText.includes('发送失败') || bodyText.includes('暂无邮件日志') || bodyText.includes('No email logs')

@@ -27,7 +27,6 @@ const loginKeywords = [
 ]
 
 const notFoundPatterns = [
-  /404/,
   /This page could not be found/,
   /page not found/i,
 ]
