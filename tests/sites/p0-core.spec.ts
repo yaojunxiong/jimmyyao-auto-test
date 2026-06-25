@@ -701,6 +701,7 @@ test.describe('P0 core business tests @p0', () => {
       verifySetBest?: boolean
       timeout?: number
       interval?: number
+      createdAfter?: string
     },
   ): Promise<Record<string, unknown>[]> {
     const timeout = options.timeout ?? 60000
@@ -708,6 +709,7 @@ test.describe('P0 core business tests @p0', () => {
     const maxAttempts = Math.ceil(timeout / interval)
     const verifySignedUrl = options.verifySignedUrl ?? true
     const verifySetBest = options.verifySetBest ?? false
+    const createdAfter = options.createdAfter ?? new Date(0).toISOString()
 
     let lastTakes: Record<string, unknown>[] = []
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
@@ -719,15 +721,12 @@ test.describe('P0 core business tests @p0', () => {
       }
       lastTakes = await resp.json() as Record<string, unknown>[]
       // API returns snake_case fields from Supabase/PostgREST
-      const uploaded = lastTakes.filter(t => t.upload_status === 'uploaded')
+      const fresh = lastTakes.filter(t => t.upload_status === 'uploaded' && String(t.created_at ?? '') > createdAfter)
       const statuses = lastTakes.map(t => (t.upload_status as string) ?? '').join(', ')
-      console.log(`[poll] attempt ${attempt}/${maxAttempts}: takes=${lastTakes.length}, uploaded=${uploaded.length}, statuses=[${statuses}]`)
+      console.log(`[poll] attempt ${attempt}/${maxAttempts}: takes=${lastTakes.length}, fresh_uploaded=${fresh.length}, statuses=[${statuses}]`)
 
-      if (uploaded.length >= options.minCount) {
-        // Sort by created_at descending, only verify the most recent minCount takes
-        uploaded.sort((a, b) => String(b.created_at ?? '').localeCompare(String(a.created_at ?? '')))
-        const recent = uploaded.slice(0, options.minCount)
-        for (const t of recent) {
+      if (fresh.length >= options.minCount) {
+        for (const t of fresh.slice(0, options.minCount)) {
           expect(t.storage_path).toBeTruthy()
           const path = String(t.storage_path ?? '')
           expect(path).toMatch(/^[0-9a-f-]+\/lesson-/)
@@ -750,8 +749,8 @@ test.describe('P0 core business tests @p0', () => {
             console.log(`[poll] take id=${t.id} set-best OK`)
           }
         }
-        console.log(`[poll] Cloud verified: ${recent.length}/${uploaded.length} take(s) verified, storage_path, signed URL${verifySetBest ? ', set-best' : ''}`)
-        return recent
+        console.log(`[poll] Cloud verified: ${Math.min(fresh.length, options.minCount)} take(s) verified, storage_path, signed URL${verifySetBest ? ', set-best' : ''}`)
+        return fresh.slice(0, options.minCount)
       }
     }
 
@@ -817,6 +816,7 @@ test.describe('P0 core business tests @p0', () => {
         verifySetBest: true,
         timeout: 60000,
         interval: 1000,
+        createdAfter: new Date().toISOString(),
       })
       console.log(`[p2-1c] Cloud upload verified: ${uploaded.length} take(s)`)
 
@@ -848,6 +848,8 @@ test.describe('P0 core business tests @p0', () => {
       await page.goto(`${base}/lessons/1/recitation`, { waitUntil: 'networkidle' })
       await waitForLoadComplete(page, 'p2-1d')
 
+      const recordStartTime = new Date().toISOString()
+
       // Record twice on the first line
       for (let i = 0; i < 2; i++) {
         await recordRecitationTake(page, 1500)
@@ -865,6 +867,7 @@ test.describe('P0 core business tests @p0', () => {
         verifySetBest: false,
         timeout: 60000,
         interval: 1000,
+        createdAfter: recordStartTime,
       })
       console.log(`[p2-1d] Cloud upload verified: ${uploaded.length} take(s)`)
 
