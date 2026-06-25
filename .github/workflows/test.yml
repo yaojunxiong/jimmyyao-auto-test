@@ -41,15 +41,19 @@ jobs:
           npx playwright test --grep '@smoke' --reporter json,html,list 2>&1 | tee pw-artifacts/smoke-raw.txt
           EXIT_CODE=${PIPESTATUS[0]}
           python3 -c "
-          import re, json
-          with open('pw-artifacts/smoke-raw.txt') as f:
-              content = f.read()
-          last_brace = content.rfind('{')
-          if last_brace >= 0:
-              match = re.search(r'(\{.*\})', content[last_brace:], re.DOTALL)
-              if match:
-                  with open('pw-artifacts/smoke.json', 'w') as out:
-                      out.write(match.group(1))
+          import json
+          content = open('pw-artifacts/smoke-raw.txt').read()
+          decoder = json.JSONDecoder()
+          for i, ch in enumerate(content):
+              if ch != '{':
+                  continue
+              try:
+                  obj, end = decoder.raw_decode(content[i:])
+              except json.JSONDecodeError:
+                  continue
+              if isinstance(obj, dict) and {'config', 'suites', 'stats'} <= set(obj):
+                  open('pw-artifacts/smoke.json', 'w').write(json.dumps(obj))
+                  break
           "
           exit $EXIT_CODE
 
@@ -112,15 +116,19 @@ jobs:
           npx playwright test --grep '@study' --reporter json,html,list 2>&1 | tee pw-artifacts/study-raw.txt
           EXIT_CODE=${PIPESTATUS[0]}
           python3 -c "
-          import re, json
-          with open('pw-artifacts/study-raw.txt') as f:
-              content = f.read()
-          last_brace = content.rfind('{')
-          if last_brace >= 0:
-              match = re.search(r'(\{.*\})', content[last_brace:], re.DOTALL)
-              if match:
-                  with open('pw-artifacts/study.json', 'w') as out:
-                      out.write(match.group(1))
+          import json
+          content = open('pw-artifacts/study-raw.txt').read()
+          decoder = json.JSONDecoder()
+          for i, ch in enumerate(content):
+              if ch != '{':
+                  continue
+              try:
+                  obj, end = decoder.raw_decode(content[i:])
+              except json.JSONDecodeError:
+                  continue
+              if isinstance(obj, dict) and {'config', 'suites', 'stats'} <= set(obj):
+                  open('pw-artifacts/study.json', 'w').write(json.dumps(obj))
+                  break
           "
           exit $EXIT_CODE
 
@@ -133,15 +141,19 @@ jobs:
           npx playwright test --grep '@admin-auth' --reporter json,html,list 2>&1 | tee pw-artifacts/admin-auth-raw.txt
           EXIT_CODE=${PIPESTATUS[0]}
           python3 -c "
-          import re, json
-          with open('pw-artifacts/admin-auth-raw.txt') as f:
-              content = f.read()
-          last_brace = content.rfind('{')
-          if last_brace >= 0:
-              match = re.search(r'(\{.*\})', content[last_brace:], re.DOTALL)
-              if match:
-                  with open('pw-artifacts/admin-auth.json', 'w') as out:
-                      out.write(match.group(1))
+          import json
+          content = open('pw-artifacts/admin-auth-raw.txt').read()
+          decoder = json.JSONDecoder()
+          for i, ch in enumerate(content):
+              if ch != '{':
+                  continue
+              try:
+                  obj, end = decoder.raw_decode(content[i:])
+              except json.JSONDecodeError:
+                  continue
+              if isinstance(obj, dict) and {'config', 'suites', 'stats'} <= set(obj):
+                  open('pw-artifacts/admin-auth.json', 'w').write(json.dumps(obj))
+                  break
           "
           exit $EXIT_CODE
         env:
@@ -157,15 +169,19 @@ jobs:
           npx playwright test --grep '@normal-user-e2e' --reporter json,html,list 2>&1 | tee pw-artifacts/normal-user-e2e-raw.txt
           EXIT_CODE=${PIPESTATUS[0]}
           python3 -c "
-          import re, json
-          with open('pw-artifacts/normal-user-e2e-raw.txt') as f:
-              content = f.read()
-          last_brace = content.rfind('{')
-          if last_brace >= 0:
-              match = re.search(r'(\{.*\})', content[last_brace:], re.DOTALL)
-              if match:
-                  with open('pw-artifacts/normal-user-e2e.json', 'w') as out:
-                      out.write(match.group(1))
+          import json
+          content = open('pw-artifacts/normal-user-e2e-raw.txt').read()
+          decoder = json.JSONDecoder()
+          for i, ch in enumerate(content):
+              if ch != '{':
+                  continue
+              try:
+                  obj, end = decoder.raw_decode(content[i:])
+              except json.JSONDecodeError:
+                  continue
+              if isinstance(obj, dict) and {'config', 'suites', 'stats'} <= set(obj):
+                  open('pw-artifacts/normal-user-e2e.json', 'w').write(json.dumps(obj))
+                  break
           "
           exit $EXIT_CODE
         env:
@@ -183,15 +199,19 @@ jobs:
           npx playwright test --grep '@p0' --reporter json,html,list 2>&1 | tee pw-artifacts/p0-raw.txt
           EXIT_CODE=${PIPESTATUS[0]}
           python3 -c "
-          import re, json
-          with open('pw-artifacts/p0-raw.txt') as f:
-              content = f.read()
-            last_brace = content.rfind('{')
-            if last_brace >= 0:
-                match = re.search(r'(\{.*\})', content[last_brace:], re.DOTALL)
-                if match:
-                    with open('pw-artifacts/p0.json', 'w') as out:
-                        out.write(match.group(1))
+          import json
+          content = open('pw-artifacts/p0-raw.txt').read()
+          decoder = json.JSONDecoder()
+          for i, ch in enumerate(content):
+              if ch != '{':
+                  continue
+              try:
+                  obj, end = decoder.raw_decode(content[i:])
+              except json.JSONDecodeError:
+                  continue
+              if isinstance(obj, dict) and {'config', 'suites', 'stats'} <= set(obj):
+                  open('pw-artifacts/p0.json', 'w').write(json.dumps(obj))
+                  break
           "
           exit $EXIT_CODE
         env:

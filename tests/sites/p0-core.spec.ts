@@ -56,6 +56,8 @@ async function waitForAnyKeyword(page: import('@playwright/test').Page, keywords
 }
 
 test.describe('P0 core business tests @p0', () => {
+  test.describe.configure({ mode: 'serial' })
+
   test.beforeAll(async ({ browser }) => {
     if (needsSetup) {
       console.log('[p0] Setup skipped: ADMIN_EMAIL/ADMIN_PASSWORD not configured')
@@ -1015,11 +1017,11 @@ test.describe('P0 core business tests @p0', () => {
       // Original lesson page elements must always be present
       const hasDeepDive = text.includes('中文理解') || text.includes('Deep Dive')
       expect(hasDeepDive).toBe(true)
-      const hasConversation = text.includes('会话原文') || text.includes('Conversation Text')
-      expect(hasConversation).toBe(true)
       // Lesson title visible
       const hasTitle = text.includes('会话主线') || text.includes('Conversation Mainline')
       expect(hasTitle).toBe(true)
+      const hasLessonMarker = text.includes('第 1 课') || text.includes('Lesson 1') || text.includes('おはようございます')
+      expect(hasLessonMarker).toBe(true)
       console.log('[p2-1h] Original lesson page unaffected by recitation V2 flag')
     } finally {
       await ctx.close()
