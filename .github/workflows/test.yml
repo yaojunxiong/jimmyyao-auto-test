@@ -44,7 +44,8 @@ jobs:
           import re, json
           with open('pw-artifacts/smoke-raw.txt') as f:
               content = f.read()
-          match = re.search(r'(\{.*\})', content, re.DOTALL)
+          last_brace = content.rindex('{')
+          match = re.search(r'(\{.*\})', content[last_brace:], re.DOTALL)
           if match:
               with open('pw-artifacts/smoke.json', 'w') as out:
                   out.write(match.group(1))
@@ -113,7 +114,8 @@ jobs:
           import re, json
           with open('pw-artifacts/study-raw.txt') as f:
               content = f.read()
-          match = re.search(r'(\{.*\})', content, re.DOTALL)
+          last_brace = content.rindex('{')
+          match = re.search(r'(\{.*\})', content[last_brace:], re.DOTALL)
           if match:
               with open('pw-artifacts/study.json', 'w') as out:
                   out.write(match.group(1))
@@ -132,7 +134,8 @@ jobs:
           import re, json
           with open('pw-artifacts/admin-auth-raw.txt') as f:
               content = f.read()
-          match = re.search(r'(\{.*\})', content, re.DOTALL)
+          last_brace = content.rindex('{')
+          match = re.search(r'(\{.*\})', content[last_brace:], re.DOTALL)
           if match:
               with open('pw-artifacts/admin-auth.json', 'w') as out:
                   out.write(match.group(1))
@@ -154,7 +157,8 @@ jobs:
           import re, json
           with open('pw-artifacts/normal-user-e2e-raw.txt') as f:
               content = f.read()
-          match = re.search(r'(\{.*\})', content, re.DOTALL)
+          last_brace = content.rindex('{')
+          match = re.search(r'(\{.*\})', content[last_brace:], re.DOTALL)
           if match:
               with open('pw-artifacts/normal-user-e2e.json', 'w') as out:
                   out.write(match.group(1))
@@ -178,10 +182,12 @@ jobs:
           import re, json
           with open('pw-artifacts/p0-raw.txt') as f:
               content = f.read()
-          match = re.search(r'(\{.*\})', content, re.DOTALL)
-          if match:
-              with open('pw-artifacts/p0.json', 'w') as out:
-                  out.write(match.group(1))
+           # Find the last '{' (the actual Playwright JSON payload)
+           last_brace = content.rindex('{')
+           match = re.search(r'(\{.*\})', content[last_brace:], re.DOTALL)
+           if match:
+               with open('pw-artifacts/p0.json', 'w') as out:
+                   out.write(match.group(1))
           "
           exit $EXIT_CODE
         env:
