@@ -718,14 +718,15 @@ test.describe('P0 core business tests @p0', () => {
         continue
       }
       lastTakes = await resp.json() as Record<string, unknown>[]
-      const uploaded = lastTakes.filter(t => t.uploadStatus === 'uploaded')
-      const statuses = lastTakes.map(t => t.uploadStatus).join(', ')
+      // API returns snake_case fields from Supabase/PostgREST
+      const uploaded = lastTakes.filter(t => t.upload_status === 'uploaded')
+      const statuses = lastTakes.map(t => t.upload_status).join(', ')
       console.log(`[poll] attempt ${attempt}/${maxAttempts}: takes=${lastTakes.length}, uploaded=${uploaded.length}, statuses=[${statuses}]`)
 
       if (uploaded.length >= options.minCount) {
         for (const t of uploaded) {
-          expect(t.storagePath).toBeTruthy()
-          const path = String(t.storagePath ?? '')
+          expect(t.storage_path).toBeTruthy()
+          const path = String(t.storage_path ?? '')
           expect(path).toMatch(/^[0-9a-f-]+\/lesson-/)
           console.log(`[poll] take id=${t.id} storagePath=${path}`)
 
@@ -756,7 +757,7 @@ test.describe('P0 core business tests @p0', () => {
     // 1. Last list API response
     console.log(`[poll] Last list API returned ${lastTakes.length} take(s)`)
     for (const t of lastTakes) {
-      console.log(`[poll]   id=${t.id} uploadStatus=${t.uploadStatus} storagePath=${t.storagePath} createdAt=${t.createdAt}`)
+      console.log(`[poll]   id=${t.id} upload_status=${t.upload_status} storage_path=${t.storage_path} created_at=${t.created_at}`)
     }
     // 2. Try direct Supabase query via API (if available)
     try {
@@ -765,7 +766,7 @@ test.describe('P0 core business tests @p0', () => {
         const allTakes = await lastResp.json() as Record<string, unknown>[]
         console.log(`[poll] includeAll=true returned ${allTakes.length} take(s)`)
         for (const t of allTakes.slice(0, 10)) {
-          console.log(`[poll]   id=${t.id} uploadStatus=${t.uploadStatus} storagePath=${t.storagePath}`)
+          console.log(`[poll]   id=${t.id} upload_status=${t.upload_status} storage_path=${t.storage_path}`)
         }
       }
     } catch { /* ignore */ }
@@ -775,7 +776,7 @@ test.describe('P0 core business tests @p0', () => {
       console.log(`[poll] /admin/recording-health status=${hResp.status()}`)
     } catch { /* ignore */ }
 
-    throw new Error(`waitForUploadedTake timeout: only ${lastTakes.filter(t => t.uploadStatus === 'uploaded').length}/${options.minCount} take(s) uploaded after ${timeout}ms`)
+    throw new Error(`waitForUploadedTake timeout: only ${lastTakes.filter(t => t.upload_status === 'uploaded').length}/${options.minCount} take(s) uploaded after ${timeout}ms`)
   }
 
   test('P2-1c record a take with fake microphone', async ({ browser }) => {
