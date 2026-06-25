@@ -929,11 +929,8 @@ test.describe('P0 core business tests @p0', () => {
       for (let i = 0; i < 2; i++) {
         await recordRecitationTake(page, 1500)
       }
-      const takeRows = page.getByTestId('recitation-take-row')
-      await expect(takeRows.first()).toBeVisible({ timeout: 15000 })
-      const takeCount = await takeRows.count()
-      expect(takeCount).toBeGreaterThanOrEqual(2)
-      console.log(`[p2-1d] ${takeCount} take versions found locally`)
+      await expect(page.getByTestId('recitation-take-row').first()).toBeVisible({ timeout: 15000 })
+      console.log('[p2-1d] Recording UI rendered at least one take row')
 
       // ── Cloud verification (poll up to 60s, need 2 uploaded) ──
       const uploaded = await waitForUploadedTake(page, 1, 1, {
@@ -949,7 +946,11 @@ test.describe('P0 core business tests @p0', () => {
       // ── Persistence check: reload and verify take row still visible ──
       await page.reload({ waitUntil: 'networkidle' })
       await waitForLoadComplete(page, 'p2-1d-refresh')
-      await expect(takeRows.first()).toBeVisible({ timeout: 15000 })
+      await expect(page.getByTestId('recitation-take-row').first()).toBeVisible({ timeout: 15000 })
+      await expect.poll(
+        async () => page.getByTestId('recitation-take-row').count(),
+        { timeout: 15000 },
+      ).toBeGreaterThanOrEqual(2)
       console.log('[p2-1d] After reload: take rows still visible')
     } finally {
       await ctx.close()
