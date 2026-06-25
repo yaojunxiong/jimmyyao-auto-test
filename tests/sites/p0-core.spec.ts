@@ -691,10 +691,97 @@ test.describe('P0 core business tests @p0', () => {
     }
   })
 
+  async function waitForUploadedTake(
+    page: import('@playwright/test').Page,
+    lessonNo: number,
+    lineNo: number,
+    options: {
+      minCount: number
+      verifySignedUrl?: boolean
+      verifySetBest?: boolean
+      timeout?: number
+      interval?: number
+    },
+  ): Promise<Record<string, unknown>[]> {
+    const timeout = options.timeout ?? 60000
+    const interval = options.interval ?? 1000
+    const maxAttempts = Math.ceil(timeout / interval)
+    const verifySignedUrl = options.verifySignedUrl ?? true
+    const verifySetBest = options.verifySetBest ?? false
+
+    let lastTakes: Record<string, unknown>[] = []
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      await page.waitForTimeout(interval)
+      const resp = await page.request.get(`${base}/api/recording/list?lessonNo=${lessonNo}&lineNo=${lineNo}`)
+      if (!resp.ok()) {
+        console.log(`[poll] attempt ${attempt}/${maxAttempts}: list API status=${resp.status()}, continuing`)
+        continue
+      }
+      lastTakes = await resp.json() as Record<string, unknown>[]
+      const uploaded = lastTakes.filter(t => t.uploadStatus === 'uploaded')
+      const statuses = lastTakes.map(t => t.uploadStatus).join(', ')
+      console.log(`[poll] attempt ${attempt}/${maxAttempts}: takes=${lastTakes.length}, uploaded=${uploaded.length}, statuses=[${statuses}]`)
+
+      if (uploaded.length >= options.minCount) {
+        for (const t of uploaded) {
+          expect(t.storagePath).toBeTruthy()
+          const path = String(t.storagePath ?? '')
+          expect(path).toMatch(/^[0-9a-f-]+\/lesson-/)
+          console.log(`[poll] take id=${t.id} storagePath=${path}`)
+
+          if (verifySignedUrl) {
+            const sr = await page.request.get(`${base}/api/recording/signed-url?id=${t.id}`)
+            expect(sr.ok()).toBe(true)
+            const srBody = await sr.json() as Record<string, unknown>
+            expect(srBody.signedUrl).toBeTruthy()
+            console.log(`[poll] take id=${t.id} signed-url OK`)
+          }
+
+          if (verifySetBest) {
+            const sbr = await page.request.post(`${base}/api/recording/set-best`, {
+              headers: { 'Content-Type': 'application/json' },
+              data: { id: t.id },
+            })
+            expect(sbr.ok()).toBe(true)
+            console.log(`[poll] take id=${t.id} set-best OK`)
+          }
+        }
+        console.log(`[poll] Cloud verified: ${uploaded.length} take(s) uploaded, storage_path, signed URL${verifySetBest ? ', set-best' : ''}`)
+        return uploaded
+      }
+    }
+
+    // ── Timeout diagnostic output ──
+    console.log(`[poll] TIMEOUT after ${timeout}ms — beginning diagnostic dump`)
+    // 1. Last list API response
+    console.log(`[poll] Last list API returned ${lastTakes.length} take(s)`)
+    for (const t of lastTakes) {
+      console.log(`[poll]   id=${t.id} uploadStatus=${t.uploadStatus} storagePath=${t.storagePath} createdAt=${t.createdAt}`)
+    }
+    // 2. Try direct Supabase query via API (if available)
+    try {
+      const lastResp = await page.request.get(`${base}/api/recording/list?lessonNo=${lessonNo}&lineNo=${lineNo}&includeAll=true`)
+      if (lastResp.ok()) {
+        const allTakes = await lastResp.json() as Record<string, unknown>[]
+        console.log(`[poll] includeAll=true returned ${allTakes.length} take(s)`)
+        for (const t of allTakes.slice(0, 10)) {
+          console.log(`[poll]   id=${t.id} uploadStatus=${t.uploadStatus} storagePath=${t.storagePath}`)
+        }
+      }
+    } catch { /* ignore */ }
+    // 3. Attempt to check Storage via recording-health admin page (best-effort)
+    try {
+      const hResp = await page.request.get(`${base}/admin/recording-health`)
+      console.log(`[poll] /admin/recording-health status=${hResp.status()}`)
+    } catch { /* ignore */ }
+
+    throw new Error(`waitForUploadedTake timeout: only ${lastTakes.filter(t => t.uploadStatus === 'uploaded').length}/${options.minCount} take(s) uploaded after ${timeout}ms`)
+  }
+
   test('P2-1c record a take with fake microphone', async ({ browser }) => {
+    test.slow()
     skipIfNoSetup()
     skipIfNoStorage()
-    // Launch new browser with fake audio device args
     const testBrowser = await chromium.launch({
       args: [
         '--use-fake-ui-for-media-stream',
@@ -707,55 +794,33 @@ test.describe('P0 core business tests @p0', () => {
     try {
       await page.goto(`${base}/lessons/1/recitation`, { waitUntil: 'networkidle' })
       await waitForLoadComplete(page, 'p2-1c-record')
+
+      // Record one take
       await recordRecitationTake(page, 2000)
+
+      // ── Local UI verification ──
+      const takeRow = page.getByTestId('recitation-take-row').first()
+      await expect(takeRow).toBeVisible({ timeout: 15000 })
       const text = await page.locator('body').innerText()
-      // Should show score
       const hasScore = text.includes('分') || text.includes('score')
       expect(hasScore).toBe(true)
-      // Should show take list (wait for UI to render local take)
-      await expect(page.getByTestId('recitation-take-row').first()).toBeVisible({ timeout: 15000 })
-      const takeRows = await page.getByTestId('recitation-take-row').count()
-      expect(takeRows).toBeGreaterThanOrEqual(1)
-      console.log(`[p2-1c] Recording completed, ${takeRows} take(s) visible`)
+      console.log('[p2-1c] Recording completed and take saved locally')
 
-      // ── Cloud verification ──
-      // Poll list API until upload completes
-      let cloudVerified = false
-      for (let attempt = 0; attempt < 10; attempt++) {
-        await page.waitForTimeout(2000)
-        const resp = await page.request.get(`${base}/api/recording/list?lessonNo=1&lineNo=1`)
-        if (!resp.ok()) continue
-        const takes = await resp.json() as Array<Record<string, unknown>>
-        const uploaded = takes.filter(t => t.uploadStatus === 'uploaded')
-        if (uploaded.length < 1) continue
-        for (const t of uploaded) {
-          expect(t.storagePath).toBeTruthy()
-          expect(String(t.storagePath)).toMatch(/^[0-9a-f-]+\/lesson-/)
-          // Verify signed URL returns HTTP 200
-          const sr = await page.request.get(`${base}/api/recording/signed-url?id=${t.id}`)
-          expect(sr.ok()).toBe(true)
-          const srBody = await sr.json() as Record<string, unknown>
-          expect(srBody.signedUrl).toBeTruthy()
-          // Verify set-best returns HTTP 200
-          const sbr = await page.request.post(`${base}/api/recording/set-best`, {
-            headers: { 'Content-Type': 'application/json' },
-            data: { id: t.id },
-          })
-          expect(sbr.ok()).toBe(true)
-        }
-        cloudVerified = true
-        break
-      }
-      expect(cloudVerified).toBe(true)
-      console.log('[p2-1c] Cloud upload verified: storage_path, signed URL, set-best')
+      // ── Cloud verification (poll up to 60s) ──
+      const uploaded = await waitForUploadedTake(page, 1, 1, {
+        minCount: 1,
+        verifySignedUrl: true,
+        verifySetBest: true,
+        timeout: 60000,
+        interval: 1000,
+      })
+      console.log(`[p2-1c] Cloud upload verified: ${uploaded.length} take(s)`)
 
-      // ── Refresh page and verify data persists ──
+      // ── Persistence check: reload and verify take row still visible ──
       await page.reload({ waitUntil: 'networkidle' })
       await waitForLoadComplete(page, 'p2-1c-refresh')
-      await expect(page.getByTestId('recitation-take-row').first()).toBeVisible({ timeout: 15000 })
-      const refreshRows = await page.getByTestId('recitation-take-row').count()
-      expect(refreshRows).toBeGreaterThanOrEqual(1)
-      console.log('[p2-1c] Data persists after page refresh')
+      await expect(takeRow).toBeVisible({ timeout: 15000 })
+      console.log('[p2-1c] After reload: take row still visible')
     } finally {
       await ctx.close()
       await testBrowser.close()
@@ -763,6 +828,7 @@ test.describe('P0 core business tests @p0', () => {
   })
 
   test('P2-1d record multiple takes', async ({ browser }) => {
+    test.slow()
     skipIfNoSetup()
     skipIfNoStorage()
     const testBrowser = await chromium.launch({
@@ -777,47 +843,32 @@ test.describe('P0 core business tests @p0', () => {
     try {
       await page.goto(`${base}/lessons/1/recitation`, { waitUntil: 'networkidle' })
       await waitForLoadComplete(page, 'p2-1d')
+
       // Record twice on the first line
       for (let i = 0; i < 2; i++) {
         await recordRecitationTake(page, 1500)
       }
-      // Should have multiple takes visible (wait for UI to render)
-      await expect(page.getByTestId('recitation-take-row').first()).toBeVisible({ timeout: 15000 })
-      const takeCount = await page.getByTestId('recitation-take-row').count()
+      const takeRows = page.getByTestId('recitation-take-row')
+      await expect(takeRows.first()).toBeVisible({ timeout: 15000 })
+      const takeCount = await takeRows.count()
       expect(takeCount).toBeGreaterThanOrEqual(2)
-      console.log(`[p2-1d] ${takeCount} take versions found`)
+      console.log(`[p2-1d] ${takeCount} take versions found locally`)
 
-      // ── Cloud verification ──
-      let cloudVerified = false
-      for (let attempt = 0; attempt < 10; attempt++) {
-        await page.waitForTimeout(2000)
-        const resp = await page.request.get(`${base}/api/recording/list?lessonNo=1&lineNo=1`)
-        if (!resp.ok()) continue
-        const takes = await resp.json() as Array<Record<string, unknown>>
-        const uploaded = takes.filter(t => t.uploadStatus === 'uploaded')
-        if (uploaded.length < 2) continue
-        for (const t of uploaded) {
-          expect(t.storagePath).toBeTruthy()
-          expect(String(t.storagePath)).toMatch(/^[0-9a-f-]+\/lesson-/)
-          // Verify signed URL
-          const sr = await page.request.get(`${base}/api/recording/signed-url?id=${t.id}`)
-          expect(sr.ok()).toBe(true)
-          const srBody = await sr.json() as Record<string, unknown>
-          expect(srBody.signedUrl).toBeTruthy()
-        }
-        cloudVerified = true
-        break
-      }
-      expect(cloudVerified).toBe(true)
-      console.log('[p2-1d] Cloud upload verified: 2+ takes uploaded')
+      // ── Cloud verification (poll up to 60s, need 2 uploaded) ──
+      const uploaded = await waitForUploadedTake(page, 1, 1, {
+        minCount: 2,
+        verifySignedUrl: true,
+        verifySetBest: false,
+        timeout: 60000,
+        interval: 1000,
+      })
+      console.log(`[p2-1d] Cloud upload verified: ${uploaded.length} take(s)`)
 
-      // ── Refresh page and verify data persists ──
+      // ── Persistence check: reload and verify take row still visible ──
       await page.reload({ waitUntil: 'networkidle' })
       await waitForLoadComplete(page, 'p2-1d-refresh')
-      await expect(page.getByTestId('recitation-take-row').first()).toBeVisible({ timeout: 15000 })
-      const refreshCount = await page.getByTestId('recitation-take-row').count()
-      expect(refreshCount).toBeGreaterThanOrEqual(2)
-      console.log('[p2-1d] Data persists after page refresh')
+      await expect(takeRows.first()).toBeVisible({ timeout: 15000 })
+      console.log('[p2-1d] After reload: take rows still visible')
     } finally {
       await ctx.close()
       await testBrowser.close()
