@@ -2,6 +2,8 @@ name: Auto Test
 
 on:
   workflow_dispatch:
+  pull_request:
+    branches: [main, master]
   push:
     branches: [main, master]
   repository_dispatch:
@@ -107,6 +109,36 @@ jobs:
           echo "ADMIN_PASSWORD configured: ${{ secrets.ADMIN_PASSWORD != '' }}"
           echo "TEST_USER_EMAIL configured: ${{ secrets.TEST_USER_EMAIL != '' }}"
           echo "TEST_USER_PASSWORD configured: ${{ secrets.TEST_USER_PASSWORD != '' }}"
+
+      - name: Run Forum authenticated closure (@forum-auth)
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+        shell: bash
+        run: |
+          set +e
+          mkdir -p pw-artifacts
+          npx playwright test --grep '@forum-auth' --reporter json,html,list 2>&1 | tee pw-artifacts/forum-auth-raw.txt
+          EXIT_CODE=${PIPESTATUS[0]}
+          python3 -c "
+          import json
+          content = open('pw-artifacts/forum-auth-raw.txt').read()
+          decoder = json.JSONDecoder()
+          for i, ch in enumerate(content):
+              if ch != '{':
+                  continue
+              try:
+                  obj, end = decoder.raw_decode(content[i:])
+              except json.JSONDecodeError:
+                  continue
+              if isinstance(obj, dict) and {'config', 'suites', 'stats'} <= set(obj):
+                  open('pw-artifacts/forum-auth.json', 'w').write(json.dumps(obj))
+                  break
+          "
+          exit $EXIT_CODE
+        env:
+          TEST_USER_EMAIL: ${{ secrets.TEST_USER_EMAIL }}
+          TEST_USER_PASSWORD: ${{ secrets.TEST_USER_PASSWORD }}
+          ADMIN_EMAIL: ${{ secrets.ADMIN_EMAIL }}
+          ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
 
       - name: Run study tests (unauthenticated)
         shell: bash
@@ -326,6 +358,7 @@ jobs:
           MODULES = [
               ('Homepage / site availability', 'smoke.json', ''),
               ('Unauthenticated admin pages (@study)', 'study.json', ''),
+              ('Forum authenticated closure (@forum-auth)', 'forum-auth.json', '' if admin_configured and user_configured else 'ADMIN_* and TEST_USER_* credentials not configured in Secrets'),
               ('Admin authenticated (@admin-auth)', 'admin-auth.json', '' if admin_configured else 'ADMIN_EMAIL / ADMIN_PASSWORD not configured in Secrets'),
               ('Normal user e2e (@normal-user-e2e)', 'normal-user-e2e.json', '' if user_configured else 'TEST_USER_EMAIL / TEST_USER_PASSWORD not configured in Secrets'),
               ('P0 core business (@p0)', 'p0.json', '' if admin_configured else 'ADMIN_EMAIL / ADMIN_PASSWORD not configured in Secrets'),
