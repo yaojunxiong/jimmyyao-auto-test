@@ -100,7 +100,7 @@ test.describe('Forum authenticated moderation closure @forum-auth', () => {
 
     try {
       await anonymousPage.goto(`${forumOrigin}/posts/new`, { waitUntil: 'domcontentloaded' })
-      await expect(anonymousPage.getByText('登录后可以发帖')).toBeVisible()
+      await expect(anonymousPage.getByRole('heading', { name: '登录后可以发帖', exact: true })).toBeVisible()
       await expect(anonymousPage.locator('form.postForm')).toHaveCount(0)
 
       const anonymousAdminResponse = await anonymousContext.request.post(
