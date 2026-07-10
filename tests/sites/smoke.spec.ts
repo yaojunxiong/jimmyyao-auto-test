@@ -50,11 +50,7 @@ test.describe('Smoke tests', () => {
       await expect(body).toBeVisible()
       console.log('✓ body is visible')
 
-      // Wait for the network to settle so deferred errors surface
-      await page.waitForLoadState('networkidle')
-
-      // Catch any errors that surface after the initial load
-      await expect.poll(() => errors, { timeout: 5000 }).toHaveLength(0)
+      // Give deferred rendering a bounded window. Some portals keep long-lived\n      // requests open, so networkidle is not a reliable readiness signal.\n      await page.waitForTimeout(1500)\n\n      // Catch any errors that surface after the initial load\n      await expect.poll(() => errors, { timeout: 5000 }).toHaveLength(0)
 
       // Re-check body is still visible after deferred rendering
       await expect(body).toBeVisible()
