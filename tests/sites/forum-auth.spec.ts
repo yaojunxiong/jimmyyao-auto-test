@@ -14,20 +14,28 @@ const credentialsConfigured = Boolean(userEmail && userPassword && adminEmail &&
 
 async function authenticatedContext(browser: Browser, email: string, password: string) {
   const bootstrap = await browser.newContext()
-  const response = await bootstrap.request.post(
-    `${supabaseUrl}/auth/v1/token?grant_type=password`,
-    {
-      headers: {
-        apikey: supabaseKey,
-        'Content-Type': 'application/json',
+  let response: Awaited<ReturnType<typeof bootstrap.request.post>> | null = null
+  let session: Record<string, any> = {}
+
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    response = await bootstrap.request.post(
+      `${supabaseUrl}/auth/v1/token?grant_type=password`,
+      {
+        headers: {
+          apikey: supabaseKey,
+          'Content-Type': 'application/json',
+        },
+        data: { email, password },
       },
-      data: { email, password },
-    },
-  )
-  const session = await response.json()
+    )
+    session = await response.json()
+    if (response.ok() && session.access_token) break
+    if (response.status() !== 429 || attempt === 3) break
+    await new Promise((resolve) => setTimeout(resolve, attempt * 5000))
+  }
   await bootstrap.close()
 
-  expect(response.ok(), `Supabase login failed for ${email.slice(0, 4)}***`).toBe(true)
+  expect(response?.ok(), `Supabase login failed for ${email.slice(0, 4)}*** (status ${response?.status()})`).toBe(true)
   expect(session.access_token).toBeTruthy()
 
   const context = await browser.newContext()
@@ -54,7 +62,7 @@ async function authenticatedContext(browser: Browser, email: string, password: s
 }
 
 test.describe('Forum authenticated moderation closure @forum-auth', () => {
-  test.describe.configure({ mode: 'serial' })
+  test.describe.configure({ mode: 'serial', timeout: 120_000 })
 
   let userContext: BrowserContext
   let adminContext: BrowserContext
