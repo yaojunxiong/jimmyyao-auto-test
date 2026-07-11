@@ -183,15 +183,22 @@ test.describe('Forum authenticated moderation closure @forum-auth', () => {
       const commentBlock = adminComment.locator('..')
 
       adminPage.once('dialog', (dialog) => dialog.accept())
-      await commentBlock.getByRole('button', { name: 'Hide' }).click()
-      await expect.poll(async () => {
-        await adminPage.reload({ waitUntil: 'domcontentloaded' })
-        return await adminPage
+      const [hideResponse] = await Promise.all([
+        adminPage.waitForResponse(
+          (response) => response.url().includes('/api/admin/forum/comments/')
+            && response.request().method() === 'POST',
+          { timeout: 15_000 },
+        ),
+        commentBlock.getByRole('button', { name: 'Hide' }).click(),
+      ])
+      expect(hideResponse.status()).toBe(200)
+      await adminPage.reload({ waitUntil: 'domcontentloaded' })
+      await expect(
+        adminPage
           .getByText(comment, { exact: true })
           .locator('..')
-          .getByRole('button', { name: 'Restore' })
-          .count()
-      }).toBe(1)
+          .getByRole('button', { name: 'Restore' }),
+      ).toBeVisible({ timeout: 15_000 })
 
       await expect.poll(async () => {
         await anonymousPage.reload({ waitUntil: 'domcontentloaded' })
@@ -200,7 +207,15 @@ test.describe('Forum authenticated moderation closure @forum-auth', () => {
 
       const restoredComment = adminPage.getByText(comment, { exact: true }).locator('..')
       adminPage.once('dialog', (dialog) => dialog.accept())
-      await restoredComment.getByRole('button', { name: 'Restore' }).click()
+      const [restoreResponse] = await Promise.all([
+        adminPage.waitForResponse(
+          (response) => response.url().includes('/api/admin/forum/comments/')
+            && response.request().method() === 'POST',
+          { timeout: 15_000 },
+        ),
+        restoredComment.getByRole('button', { name: 'Restore' }).click(),
+      ])
+      expect(restoreResponse.status()).toBe(200)
 
       await expect.poll(async () => {
         await anonymousPage.reload({ waitUntil: 'domcontentloaded' })
@@ -208,15 +223,16 @@ test.describe('Forum authenticated moderation closure @forum-auth', () => {
       }).toBe(1)
     } finally {
       if (postId) {
-        await adminContext.request.post(
+        const cleanupResponse = await adminContext.request.post(
           `${adminOrigin}/api/admin/forum/posts/${postId}`,
           {
             data: {
-              action: 'hide',
-              review_note: `Automated cleanup after Forum Issue 2 ${runId}`,
+              action: 'delete_e2e_test',
             },
           },
         )
+        expect(cleanupResponse.status(), 'Forum E2E cleanup request failed').toBe(200)
+        expect((await cleanupResponse.json()).ok, 'Forum E2E cleanup response was not ok').toBe(true)
       }
       await anonymousContext.close()
       await userPage.close()
