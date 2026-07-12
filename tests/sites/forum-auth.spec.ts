@@ -61,6 +61,41 @@ async function authenticatedContext(browser: Browser, email: string, password: s
   return context
 }
 
+async function captureCommentAction(
+  page: import('@playwright/test').Page,
+  button: import('@playwright/test').Locator,
+  expectedAction: 'hide' | 'restore',
+) {
+  const routePattern = '**/api/admin/forum/comments/*'
+  let capturedUrl = ''
+  let capturedAction = ''
+
+  const handler = async (route: import('@playwright/test').Route) => {
+    const request = route.request()
+    if (request.method() !== 'POST') {
+      await route.continue()
+      return
+    }
+
+    const payload = request.postDataJSON() as { action?: string }
+    capturedUrl = request.url()
+    capturedAction = payload.action || ''
+    await route.abort()
+  }
+
+  await page.route(routePattern, handler)
+  try {
+    page.once('dialog', (dialog) => dialog.accept())
+    await button.click()
+    await expect.poll(() => capturedUrl, { timeout: 15_000 }).not.toBe('')
+  } finally {
+    await page.unroute(routePattern, handler)
+  }
+  expect(capturedAction).toBe(expectedAction)
+
+  return { url: capturedUrl, action: capturedAction }
+}
+
 test.describe('Forum authenticated moderation closure @forum-auth', () => {
   test.describe.configure({ mode: 'serial', timeout: 120_000 })
 
@@ -182,8 +217,17 @@ test.describe('Forum authenticated moderation closure @forum-auth', () => {
       await expect(adminComment).toBeVisible()
       const commentBlock = adminComment.locator('..')
 
-      adminPage.once('dialog', (dialog) => dialog.accept())
-      await commentBlock.getByRole('button', { name: 'Hide' }).click()
+      const hideRequest = await captureCommentAction(
+        adminPage,
+        commentBlock.getByRole('button', { name: 'Hide' }),
+        'hide',
+      )
+      const hideResponse = await adminContext.request.post(hideRequest.url, {
+        data: { action: hideRequest.action },
+      })
+      expect(hideResponse.status()).toBe(200)
+      expect((await hideResponse.json()).ok).toBe(true)
+      await adminPage.reload({ waitUntil: 'domcontentloaded' })
       await expect(
         adminPage
           .getByText(comment, { exact: true })
@@ -197,8 +241,17 @@ test.describe('Forum authenticated moderation closure @forum-auth', () => {
       }).toBe(0)
 
       const restoredComment = adminPage.getByText(comment, { exact: true }).locator('..')
-      adminPage.once('dialog', (dialog) => dialog.accept())
-      await restoredComment.getByRole('button', { name: 'Restore' }).click()
+      const restoreRequest = await captureCommentAction(
+        adminPage,
+        restoredComment.getByRole('button', { name: 'Restore' }),
+        'restore',
+      )
+      const restoreResponse = await adminContext.request.post(restoreRequest.url, {
+        data: { action: restoreRequest.action },
+      })
+      expect(restoreResponse.status()).toBe(200)
+      expect((await restoreResponse.json()).ok).toBe(true)
+      await adminPage.reload({ waitUntil: 'domcontentloaded' })
       await expect(
         adminPage
           .getByText(comment, { exact: true })
