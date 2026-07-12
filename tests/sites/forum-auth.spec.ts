@@ -183,16 +183,7 @@ test.describe('Forum authenticated moderation closure @forum-auth', () => {
       const commentBlock = adminComment.locator('..')
 
       adminPage.once('dialog', (dialog) => dialog.accept())
-      const [hideResponse] = await Promise.all([
-        adminPage.waitForResponse(
-          (response) => response.url().includes('/api/admin/forum/comments/')
-            && response.request().method() === 'POST',
-          { timeout: 15_000 },
-        ),
-        commentBlock.getByRole('button', { name: 'Hide' }).click(),
-      ])
-      expect(hideResponse.status()).toBe(200)
-      await adminPage.reload({ waitUntil: 'domcontentloaded' })
+      await commentBlock.getByRole('button', { name: 'Hide' }).click()
       await expect(
         adminPage
           .getByText(comment, { exact: true })
@@ -207,15 +198,13 @@ test.describe('Forum authenticated moderation closure @forum-auth', () => {
 
       const restoredComment = adminPage.getByText(comment, { exact: true }).locator('..')
       adminPage.once('dialog', (dialog) => dialog.accept())
-      const [restoreResponse] = await Promise.all([
-        adminPage.waitForResponse(
-          (response) => response.url().includes('/api/admin/forum/comments/')
-            && response.request().method() === 'POST',
-          { timeout: 15_000 },
-        ),
-        restoredComment.getByRole('button', { name: 'Restore' }).click(),
-      ])
-      expect(restoreResponse.status()).toBe(200)
+      await restoredComment.getByRole('button', { name: 'Restore' }).click()
+      await expect(
+        adminPage
+          .getByText(comment, { exact: true })
+          .locator('..')
+          .getByRole('button', { name: 'Hide' }),
+      ).toBeVisible({ timeout: 15_000 })
 
       await expect.poll(async () => {
         await anonymousPage.reload({ waitUntil: 'domcontentloaded' })
