@@ -1163,7 +1163,7 @@ async function loginAsNormalUser(browser: import('@playwright/test').Browser): P
         data: { email, password },
       },
     )
-    const json = await res.json() as Record<string, unknown>
+    const json = await res.json() as Record<string, any>
     const accessToken = json.access_token as string | undefined
     const refreshToken = json.refresh_token as string | undefined
     if (!accessToken || !refreshToken) {
@@ -1173,30 +1173,46 @@ async function loginAsNormalUser(browser: import('@playwright/test').Browser): P
     }
     const projectRef = supabaseUrl.match(/https:\/\/([^.]+)/)?.[1] || 'ycjuceortcduakxscfes'
     const cookieName = `sb-${projectRef}-auth-token`
+    const cookieValue = JSON.stringify({
+      access_token: accessToken,
+      refresh_token: refreshToken,
+      expires_in: json.expires_in || 3600,
+      expires_at: json.expires_at || Math.floor(Date.now() / 1000) + 3600,
+      token_type: json.token_type || 'bearer',
+      user: json.user,
+    })
     await tempPage.goto(base, { waitUntil: 'domcontentloaded' })
     await tempPage.evaluate(
-      ({ name, accessToken: at, refreshToken: rt }) => {
-        document.cookie = `${name}=${encodeURIComponent(JSON.stringify({ access_token: at, refresh_token: rt }))}; path=/; max-age=86400; SameSite=Lax; Secure`
+      ({ name, value }) => {
+        document.cookie = `${name}=${encodeURIComponent(value)}; path=/; max-age=3600; SameSite=Lax; Secure`
       },
-      { name: cookieName, accessToken, refreshToken },
+      { name: cookieName, value: cookieValue },
     )
-    // Verify session works
-    const meRes = await tempPage.goto(`${base}/me`, { waitUntil: 'domcontentloaded' })
-    const meText = await tempPage.locator('body').innerText()
-    console.log(`[loginAsNormalUser] /me response status=${meRes?.status()}, contains email=${meText.includes(email)}`)
     // Create a new clean context with the cookie set
     const ctx = await browser.newContext()
     await ctx.addCookies([
       {
         name: cookieName,
-        value: JSON.stringify({ access_token: accessToken, refresh_token: refreshToken }),
+        value: cookieValue,
         domain: new URL(base).hostname,
         path: '/',
         httpOnly: false,
         secure: true,
         sameSite: 'Lax',
+        expires: Math.floor(Date.now() / 1000) + 3600,
       },
     ])
+
+    // Verify that the application server recognises the cookie as an
+    // authenticated session, not merely that the Supabase token is valid.
+    const verifyResponse = await ctx.request.get(
+      `${base}/api/recording/list?lessonNo=1&lineNo=1`,
+    )
+    console.log(`[loginAsNormalUser] app session check status=${verifyResponse.status()}`)
+    if (verifyResponse.status() === 401) {
+      await ctx.close()
+      return null
+    }
     return ctx
   } catch (e) {
     console.log(`[loginAsNormalUser] error: ${e}`)
