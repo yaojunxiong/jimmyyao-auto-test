@@ -223,7 +223,6 @@ jobs:
           ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
 
       - name: Run P0 core business tests (@p0)
-        continue-on-error: true
         shell: bash
         run: |
           set +e
