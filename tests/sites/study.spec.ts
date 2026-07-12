@@ -15,46 +15,17 @@ const adminPaths = [
   '/admin/checkins',
 ]
 
-const loginKeywords = [
-  /登录/,
-  /请先登录/,
-  /sign in/i,
-  /Google/,
-  /无权限/,
-  /管理员/,
-  /unauthorized/i,
-  /permission/i,
+const adminWallPatterns = [
+  /请先登录后访问管理员页面。/,
+  /Please sign in before opening Admin\./i,
+  /你没有管理员权限。/,
+  /You do not have admin access\./i,
 ]
 
 const notFoundPatterns = [
   /This page could not be found/,
   /page not found/i,
 ]
-
-async function waitForLoadComplete(page: import('@playwright/test').Page, tag: string, timeout = 10000) {
-  try {
-    await page.waitForFunction(
-      () => !document.body.innerText.includes('加载中...'),
-      { timeout },
-    )
-  } catch {
-    await saveScreenshot(page, `${tag}-loading-timeout`)
-    throw new Error(`${tag}: 页面加载超时 ${timeout}ms，仍在显示"加载中..."`)
-  }
-}
-
-async function waitForAnyKeyword(page: import('@playwright/test').Page, keywords: string[], tag: string, timeout = 10000) {
-  try {
-    await page.waitForFunction(
-      (keys: string[]) => keys.some((k) => document.body.innerText.includes(k)),
-      keywords,
-      { timeout },
-    )
-  } catch {
-    await saveScreenshot(page, `${tag}-content-timeout`)
-    throw new Error(`${tag}: 未出现稳定内容（${keywords.join('、')}）`)
-  }
-}
 
 function assertNo404(text: string) {
   for (const p of notFoundPatterns) {
@@ -65,7 +36,7 @@ function assertNo404(text: string) {
 async function needsAuth(page: import('@playwright/test').Page): Promise<boolean> {
   if (page.url().includes('/login')) return true
   const text = await page.locator('body').innerText()
-  return loginKeywords.some((re) => re.test(text))
+  return adminWallPatterns.some((re) => re.test(text))
 }
 
 async function saveScreenshot(page: import('@playwright/test').Page, name: string) {
@@ -129,50 +100,18 @@ test.describe('Study system tests @study', () => {
       // HARD assertion: page must NOT show 404 or Next.js not-found page
       assertNo404(bodyText)
       expect(/This page could not be found/i.test(bodyText)).toBe(false)
+      expect(status).toBeLessThan(500)
       console.log('✓ No 404 or error page')
 
-      // Check if auth-blocked → mark skip + screenshot
-      const auth = await needsAuth(page)
-      if (auth) {
-        test.info().annotations.push({ type: 'skip', description: '需要管理员登录态 (auth-required)' })
-        await saveScreenshot(page, `auth-required-${path.replace(/\//g, '-')}`)
-        console.log('⏭ Auth required, taking screenshot')
+      // Every Admin route must render an authentication/authorization wall.
+      // Authenticated page behavior is covered separately by @admin-auth.
+      await expect.poll(() => needsAuth(page), { timeout: 10000 }).toBe(true)
+      if (path === '/admin/visitor-flow-rules') {
+        await expect(body).not.toContainText('新增规则')
+        await expect(body).not.toContainText('规则值')
       }
-      test.skip(auth, '需要管理员登录态 (auth-required)')
-
-      // ── Authenticated assertions (only runs when page renders without login wall) ──
-      await waitForLoadComplete(page, `admin-${path}`)
-      await saveScreenshot(page, `admin-${path.replace(/\//g, '-')}`)
-
-      if (path === '/admin/workflows') {
-        await expect(body).toContainText('访客流程管理')
-        await expect(body).toContainText('study_visitor')
-        await expect(body).toContainText('logged_in_first_visit')
-        console.log('✓ Workflows page: all definitions present')
-      } else if (path === '/admin/activity') {
-        if (bodyText.includes('暂无访问记录')) {
-          // Must show diagnostic info when empty
-          expect(/Admin|adminCheck|userEmail|userId/.test(bodyText)).toBe(true)
-          console.log('✓ Activity page: empty with diagnostic info')
-        } else {
-          // Must show activity table or search/filter when data exists
-          await expect(body).toContainText(/最近访问记录|查询与筛选|时间|Time/)
-          console.log('✓ Activity page: table or search visible')
-        }
-      } else if (path === '/admin/visitors') {
-        await expect(body).toContainText('访客记录')
-        await expect(body).toContainText(/流程|Workflow/)
-        console.log('✓ Visitors page: title and workflow column present')
-      } else if (path === '/admin/visitor-flow-rules') {
-        await waitForAnyKeyword(page, ['新增规则', '规则列表', '暂无规则', '保存', '启用'], `admin-${path}`)
-        console.log('✓ Visitor flow rules page: stable content visible')
-      } else if (path === '/admin/system') {
-        await expect(body).toContainText(/系统检测|system/i)
-        console.log('✓ System page: content visible')
-      } else if (path === '/admin/monitor') {
-        await expect(body).toContainText(/系统监控|monitor/i)
-        console.log('✓ Monitor page: content visible')
-      }
+      await saveScreenshot(page, `auth-required-${path.replace(/\//g, '-')}`)
+      console.log('✓ Auth required')
     })
   }
 })
