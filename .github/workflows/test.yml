@@ -321,11 +321,11 @@ jobs:
                   print(f"  [debug] json parse error for {path}: {e}", file=sys.stderr)
                   return None
               stats = data.get('stats', {})
-              total = stats.get('expected', 0) + stats.get('unexpected', 0) + stats.get('skipped', 0)
+              flaky = stats.get('flaky', 0)
+              total = stats.get('expected', 0) + stats.get('unexpected', 0) + stats.get('skipped', 0) + flaky
               passed = stats.get('expected', 0)
               failed = stats.get('unexpected', 0)
               skipped = stats.get('skipped', 0)
-              flaky = stats.get('flaky', 0)
               details = []
               def walk(suites):
                   for suite in suites:
@@ -336,8 +336,14 @@ jobs:
                   ok = spec.get('ok', True)
                   title = spec.get('title', '?')
                   tests = spec.get('tests', [])
-                  if not ok:
-                      errs = tests[0].get('errors', []) if tests else []
+                  is_flaky = any(t.get('status') == 'flaky' for t in tests)
+                  if is_flaky:
+                      details.append(('FLAKY', title, 'Passed only after a retry'))
+                  elif not ok:
+                      errs = []
+                      if tests:
+                          for result in tests[0].get('results', []):
+                              errs.extend(result.get('errors', []))
                       msg = ''
                       if errs:
                           msg = (errs[0].get('message', '') or errs[0].get('snippet', '') or '').replace('\n', ' ')[:200]
@@ -381,7 +387,7 @@ jobs:
                   lines.append(f'  - **{label}**: ⚠️ no result file (runner may have failed)')
               else:
                   d = result
-                  if d['failed'] > 0:
+                  if d['failed'] > 0 or d['flaky'] > 0:
                       lines.append(f'  - **{label}**: ❌ FAILED (pass={d["passed"]}, fail={d["failed"]}, skip={d["skipped"]}, flaky={d["flaky"]})')
                   elif d['passed'] == 0 and d['skipped'] > 0:
                       lines.append(f'  - **{label}**: ⏭️ ALL SKIPPED (total={d["total"]}, skip={d["skipped"]})')
@@ -400,11 +406,12 @@ jobs:
                   lines.append(f'  - **{label}**: ⚠️ no result file (runner may have failed)')
                   continue
               d = result
-              if d['failed'] > 0:
+              if d['failed'] > 0 or d['flaky'] > 0:
                   lines.append(f'  - **{label}**: ❌ FAILED (pass={d["passed"]}, fail={d["failed"]}, skip={d["skipped"]}, flaky={d["flaky"]})')
                   for status, title, msg in d['details']:
-                      if status == 'FAIL':
-                          lines.append(f'    - ❌ `{title}`: {msg}')
+                      if status in ('FAIL', 'FLAKY'):
+                          marker = '❌' if status == 'FAIL' else '⚠️'
+                          lines.append(f'    - {marker} `{title}`: {msg}')
                   lines.append('    - Artifact: `regression-test-artifacts` (screenshots, videos, traces)')
               elif d['passed'] == 0 and d['skipped'] > 0:
                   lines.append(f'  - **{label}**: ⏭️ ALL SKIPPED (total={d["total"]}, skip={d["skipped"]})')

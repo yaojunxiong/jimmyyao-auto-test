@@ -69,6 +69,7 @@ async function captureCommentAction(
   const routePattern = '**/api/admin/forum/comments/*'
   let capturedUrl = ''
   let capturedAction = ''
+  let confirmSeen = false
 
   const handler = async (route: import('@playwright/test').Route) => {
     const request = route.request()
@@ -83,12 +84,26 @@ async function captureCommentAction(
     await route.abort()
   }
 
+  const dialogHandler = async (dialog: import('@playwright/test').Dialog) => {
+    confirmSeen = true
+    await dialog.accept()
+  }
+
   await page.route(routePattern, handler)
+  page.on('dialog', dialogHandler)
   try {
-    page.once('dialog', (dialog) => dialog.accept())
-    await button.click()
+    await expect(button).toBeEnabled()
+    await expect(async () => {
+      confirmSeen = false
+      await button.click()
+      expect(confirmSeen).toBe(true)
+    }).toPass({
+      timeout: 15_000,
+      intervals: [250, 500, 1_000],
+    })
     await expect.poll(() => capturedUrl, { timeout: 15_000 }).not.toBe('')
   } finally {
+    page.off('dialog', dialogHandler)
     await page.unroute(routePattern, handler)
   }
   expect(capturedAction).toBe(expectedAction)

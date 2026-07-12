@@ -4,6 +4,7 @@ export default defineConfig({
   testDir: './tests',
   fullyParallel: true,
   retries: 1,
+  failOnFlakyTests: Boolean(process.env.CI),
   use: {
     baseURL: 'https://jimmyyao.com',
     screenshot: 'only-on-failure',
