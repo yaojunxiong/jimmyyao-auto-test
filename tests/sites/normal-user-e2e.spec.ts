@@ -255,21 +255,23 @@ test.describe('Normal user e2e @normal-user-e2e', () => {
     console.log(`✓ Admin visitors: record found (skipReason=${hasSkipReason}, workflowLinks=${hasWorkflowLink})`)
   })
 
-  test('logged_in_first_visit workflow instances page accessible', async () => {
+  test('logged-in first-visit workflow instances page accessible', async () => {
     test.skip(!adminCtx, '管理员登录失败或未配置 ADMIN_EMAIL')
     const page = await visit(adminCtx!, '/admin/workflows?definition_key=logged_in_first_visit')
     await waitForLoadComplete(page, 'admin-workflows-logged-in-first-visit')
     await saveScreenshot(page, 'admin-workflows-logged-in-first-visit')
 
     await waitForAnyKeyword(page, [
-      'logged_in_first_visit',
+      '学习网站登录用户首次访问确认',
       '暂无流程实例',
       '审批流程管理',
     ], 'admin-workflows-logged-in-first-visit')
 
-    const body = page.locator('body')
-    await expect(body).toContainText(/审批流程管理|Workflow/)
-    console.log('✓ logged_in_first_visit workflows page: accessible')
+    await expect(page.getByRole('heading', { name: /审批流程管理|Workflow Management/i })).toBeVisible()
+    const definitionFilter = page.getByRole('combobox', { name: /流程定义|Definition/i })
+    await expect(definitionFilter).toBeVisible()
+    await expect(definitionFilter.locator('option:checked')).toHaveText(/登录用户首次访问确认/)
+    console.log('✓ Logged-in first-visit workflows page: localized filter selected')
   })
 
   test('Normal user cannot access /admin/checkins', async () => {
