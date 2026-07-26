@@ -136,7 +136,7 @@ test.describe('Admin authenticated tests @admin-auth', () => {
 
   // ── Tests ──
 
-  test('/admin/workflows shows study_visitor and logged_in_first_visit', async ({ browser }) => {
+  test('/admin/workflows exposes localized workflow definitions', async ({ browser }) => {
     skipIfNoSetup()
     skipIfNoStorage()
 
@@ -144,15 +144,17 @@ test.describe('Admin authenticated tests @admin-auth', () => {
     try {
       const page = await visit(ctx, '/admin/workflows')
       await waitForLoadComplete(page, 'auth-admin-workflows')
-      await waitForAnyKeyword(page, ['暂无流程实例', '审批流程管理', 'study_visitor', '会员申请'], 'auth-admin-workflows')
+      await waitForAnyKeyword(page, ['暂无流程实例', '审批流程管理', '会员申请'], 'auth-admin-workflows')
       await saveScreenshot(page, 'auth-admin-workflows')
 
-      const body = page.locator('body')
-      await expect(body).toContainText('审批流程管理')
-      await expect(body).toContainText('study_visitor')
-      await expect(body).toContainText('logged_in_first_visit')
-      await expect(body).toContainText('会员申请')
-      console.log('✓ Workflows: three definitions present')
+      await expect(page.getByRole('heading', { name: /审批流程管理|Workflow Management/i })).toBeVisible()
+
+      const definitionFilter = page.getByRole('combobox', { name: /流程定义|Definition/i })
+      await expect(definitionFilter).toBeVisible()
+      await expect(definitionFilter.getByRole('option', { name: /学习网站新访客待确认/ })).toHaveCount(1)
+      await expect(definitionFilter.getByRole('option', { name: /学习网站登录用户首次访问确认/ })).toHaveCount(1)
+      await expect(definitionFilter.getByRole('option', { name: /会员申请/ })).toHaveCount(1)
+      console.log('✓ Workflows: three localized definitions present in the labeled filter')
     } finally {
       await ctx.close()
     }
