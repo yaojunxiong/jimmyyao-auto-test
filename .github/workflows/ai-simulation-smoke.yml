@@ -1,0 +1,80 @@
+name: AI Simulation Smoke
+
+on:
+  workflow_call:
+    inputs:
+      base_url:
+        description: Production origin to verify
+        required: true
+        type: string
+      test_ref:
+        description: Immutable jimmyyao-auto-test commit to check out
+        required: true
+        type: string
+  workflow_dispatch:
+    inputs:
+      base_url:
+        description: Production origin to verify
+        required: true
+        default: https://study.jimmyyao.com
+        type: string
+      test_ref:
+        description: jimmyyao-auto-test ref to check out
+        required: true
+        default: main
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  ai-simulation-smoke:
+    name: Six-route production smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out immutable external test suite
+        uses: actions/checkout@v6
+        with:
+          repository: yaojunxiong/jimmyyao-auto-test
+          ref: ${{ inputs.test_ref }}
+          persist-credentials: false
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Verify six AI Simulation routes
+        env:
+          BASE_URL: ${{ inputs.base_url }}
+        run: npx playwright test tests/sites/ai-simulation.spec.ts --project=chromium --reporter=list
+
+      - name: Record reusable smoke evidence
+        if: always()
+        run: |
+          {
+            echo "### AI Simulation reusable smoke"
+            echo "- Test repository: yaojunxiong/jimmyyao-auto-test"
+            echo "- Test ref: \`${{ inputs.test_ref }}\`"
+            echo "- Base URL: ${{ inputs.base_url }}"
+            echo "- Routes: 6"
+            echo "- Viewport: 375x812"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload failure evidence
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: ai-simulation-smoke-failure
+          path: |
+            test-results/
+            playwright-report/
+          if-no-files-found: ignore
+          retention-days: 7
